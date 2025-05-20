@@ -7,17 +7,36 @@ export const STELLAR_CYBER_CONFIG = {
 
 export type AlertStatus = "New" | "In Progress" | "Ignored" | "Closed"
 
+// Menyesuaikan model data berdasarkan format respons API yang sebenarnya
 export interface StellarCyberAlert {
-  _id: string
-  index: string
-  title: string
-  description: string
-  severity: string
-  status: AlertStatus
-  created_at: string
-  updated_at: string
-  source: string
+  _id?: string
+  index?: string
+  title?: string
+  description?: string
+  severity?: string
+  status?: AlertStatus
+  created_at?: string
+  updated_at?: string
+  source?: string
   comments?: string
   score?: number
   metadata?: Record<string, any>
+
+  // Tambahan field dari data asli
+  stellar_uuid?: string
+  event_name?: string
+  event_score?: number
+  event_status?: AlertStatus
+  event_type?: string
+  timestamp?: number | string
+  xdr_event?: {
+    description?: string
+    display_name?: string
+    name?: string
+  }
+  srcip?: string
+  dstip?: string
+  srcip_host?: string
+  dstip_host?: string
+  assignee?: string
 }

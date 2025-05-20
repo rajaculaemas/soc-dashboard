@@ -81,7 +81,7 @@ export default function AlertPanel() {
   // Prepare data for the severity chart
   const severityCounts = alerts.reduce(
     (acc, alert) => {
-      const severity = alert.severity.toLowerCase()
+      const severity = (alert.severity || "medium").toLowerCase()
       acc[severity] = (acc[severity] || 0) + 1
       return acc
     },
@@ -90,7 +90,7 @@ export default function AlertPanel() {
 
   const chartData = Object.entries(severityCounts).map(([name, value]) => ({ name, value }))
 
-  const severityColor = (severity: string) => {
+  const severityColor = (severity = "medium") => {
     switch (severity.toLowerCase()) {
       case "critical":
         return "bg-red-500"
@@ -105,7 +105,7 @@ export default function AlertPanel() {
     }
   }
 
-  const statusColor = (status: string) => {
+  const statusColor = (status = "New") => {
     switch (status) {
       case "New":
         return "bg-red-500"
@@ -301,12 +301,22 @@ export default function AlertPanel() {
                             {alert.status}
                           </Badge>
                           <span className="text-xs text-muted-foreground">
-                            {new Date(alert.created_at).toLocaleString()}
+                            {new Date(alert.created_at || Date.now()).toLocaleString()}
                           </span>
                         </div>
                       </div>
                       <div className="mt-2 flex items-center justify-between">
-                        <span className="text-xs text-muted-foreground">Source: {alert.source}</span>
+                        <div className="flex flex-col">
+                          <span className="text-xs text-muted-foreground">Source: {alert.source}</span>
+                          {alert.srcip && alert.dstip && (
+                            <span className="text-xs text-muted-foreground">
+                              {alert.srcip} → {alert.dstip}
+                            </span>
+                          )}
+                          {alert.assignee && (
+                            <span className="text-xs text-muted-foreground">Assignee: {alert.assignee}</span>
+                          )}
+                        </div>
                         <div className="flex gap-2">
                           <Button variant="ghost" size="sm">
                             Details
