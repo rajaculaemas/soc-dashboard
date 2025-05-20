@@ -30,12 +30,27 @@ export const useAlertStore = create<AlertState>((set, get) => ({
         queryParams.append("status", params.status)
       }
 
+      console.log("Alert Store: Fetching alerts with params:", params)
+
+      // Tambahkan timestamp untuk mencegah caching
+      queryParams.append("_t", Date.now().toString())
+
       const response = await fetch(`/api/alerts?${queryParams.toString()}`)
+
+      console.log("Alert Store: Response status:", response.status)
+
       if (!response.ok) {
         throw new Error(`Failed to fetch alerts: ${response.status} ${response.statusText}`)
       }
 
       const data = await response.json()
+      console.log("Alert Store: Received data:", data.length ? `${data.length} alerts` : "No alerts or invalid format")
+
+      // Validasi format data
+      if (!Array.isArray(data)) {
+        throw new Error("API did not return an array")
+      }
+
       set({ alerts: data, loading: false })
     } catch (error) {
       console.error("Error fetching alerts:", error)

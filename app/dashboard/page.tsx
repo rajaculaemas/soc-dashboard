@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { Bell, Filter, RefreshCw } from "lucide-react"
+import { Bell, Filter, RefreshCw, AlertCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -53,6 +53,16 @@ export default function AlertPanel() {
 
     return () => clearInterval(interval)
   }, [])
+
+  // Tambahkan useEffect untuk logging
+  useEffect(() => {
+    console.log("Alert Panel: Current alerts state:", {
+      count: alerts.length,
+      loading,
+      error,
+      activeTab,
+    })
+  }, [alerts, loading, error, activeTab])
 
   const handleUpdateStatus = async () => {
     if (!selectedAlert) return
@@ -134,7 +144,17 @@ export default function AlertPanel() {
       {error && (
         <Card className="bg-red-50 border-red-200">
           <CardContent className="p-4">
-            <p className="text-red-600">Error: {error}</p>
+            <div className="flex items-start gap-2">
+              <AlertCircle className="h-5 w-5 text-red-500 mt-0.5 flex-shrink-0" />
+              <div>
+                <p className="text-red-600 font-medium">Error saat mengambil data alert:</p>
+                <p className="text-red-600">{error}</p>
+                <p className="text-sm text-red-500 mt-2">
+                  Pastikan integrasi Stellar Cyber sudah dikonfigurasi dengan benar dan kredensial valid. Coba refresh
+                  halaman atau periksa log server untuk informasi lebih lanjut.
+                </p>
+              </div>
+            </div>
           </CardContent>
         </Card>
       )}

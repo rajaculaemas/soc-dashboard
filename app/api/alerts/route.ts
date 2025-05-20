@@ -12,6 +12,8 @@ export async function GET(request: NextRequest) {
     const limit = searchParams.get("limit") ? Number.parseInt(searchParams.get("limit") as string) : undefined
     const page = searchParams.get("page") ? Number.parseInt(searchParams.get("page") as string) : undefined
 
+    console.log("API Route: Fetching alerts with params:", { minScore, status, sort, order, limit, page })
+
     const alerts = await getAlerts({
       minScore,
       status,
@@ -21,7 +23,14 @@ export async function GET(request: NextRequest) {
       page,
     })
 
-    return NextResponse.json(alerts)
+    console.log(`API Route: Returning ${alerts.length} alerts`)
+
+    // Tambahkan header untuk mencegah caching
+    return NextResponse.json(alerts, {
+      headers: {
+        "Cache-Control": "no-store, max-age=0",
+      },
+    })
   } catch (error) {
     console.error("Error in /api/alerts:", error)
     // Return mock data instead of error to keep the app running

@@ -1,5 +1,7 @@
 import { STELLAR_CYBER_CONFIG, type AlertStatus, type StellarCyberAlert } from "@/lib/config/stellar-cyber"
 import { urlunparse } from "@/lib/utils/url"
+// Tambahkan import validator
+import { validateAndFixAlerts } from "./stellar-cyber-validator"
 
 // Fungsi untuk mendapatkan access token
 export async function getAccessToken(): Promise<string> {
@@ -55,6 +57,9 @@ export async function getAlerts(params: {
   const { HOST, TENANT_ID } = STELLAR_CYBER_CONFIG
   const { minScore = 0, status, sort = "created_at", order = "desc", limit = 100, page = 1 } = params
 
+  console.log("Stellar Cyber Config:", { HOST, TENANT_ID })
+  console.log("Request params:", params)
+
   // Jika environment variables tidak tersedia, kembalikan data dummy
   if (!HOST || HOST === "localhost" || !TENANT_ID || TENANT_ID === "demo-tenant") {
     console.warn("Stellar Cyber credentials not properly configured. Using mock data.")
@@ -62,10 +67,13 @@ export async function getAlerts(params: {
   }
 
   try {
+    console.log("Attempting to get access token...")
     const token = await getAccessToken()
+    console.log("Access token received:", token.substring(0, 10) + "...")
 
     // Jika token adalah fallback token, kembalikan data dummy
     if (token === "dummy-access-token-for-development" || token === "error-token-for-fallback") {
+      console.warn("Using fallback token. Returning mock data.")
       return generateMockAlerts()
     }
 
@@ -85,6 +93,8 @@ export async function getAlerts(params: {
       search: queryParams.toString(),
     })
 
+    console.log("Fetching alerts from URL:", url)
+
     const headers = {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
@@ -95,13 +105,21 @@ export async function getAlerts(params: {
       headers,
     })
 
+    console.log("Response status:", response.status)
+
     if (!response.ok) {
       console.error(`Failed to get alerts: ${response.status} ${response.statusText}`)
       return generateMockAlerts()
     }
 
     const data = await response.json()
-    return data
+    console.log("Received data:", typeof data, data.length ? `${data.length} items` : "Unknown format")
+
+    // Validasi dan perbaiki format data
+    const validatedAlerts = validateAndFixAlerts(data)
+    console.log(`Validated ${validatedAlerts.length} alerts`)
+
+    return validatedAlerts
   } catch (error) {
     console.error("Error getting alerts:", error)
     return generateMockAlerts()
