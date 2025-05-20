@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Search, Download, RefreshCw, ChevronDown, ChevronUp } from "lucide-react"
+import { Search, Download, RefreshCw, ChevronDown, ChevronUp, Brain } from "lucide-react"
 import { type LogEntry, fetchLogs } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -11,6 +11,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Switch } from "@/components/ui/switch"
+import { Label } from "@/components/ui/label"
+import { log2nlp, type Log2NLPResult } from "@/lib/log2nlp"
+import { Log2NLPResults } from "@/components/log-analysis/log2nlp-results"
 
 export default function LogExplorerPage() {
   const [logs, setLogs] = useState<LogEntry[]>([])
@@ -21,23 +25,49 @@ export default function LogExplorerPage() {
   const [timeRange, setTimeRange] = useState<string>("24h")
   const [expandedLogs, setExpandedLogs] = useState<Record<string, boolean>>({})
   const [refreshing, setRefreshing] = useState(false)
+  const [useNLP, setUseNLP] = useState(true)
+  const [nlpResults, setNlpResults] = useState<Log2NLPResult | null>(null)
+  const [processingNLP, setProcessingNLP] = useState(false)
 
   const loadLogs = async () => {
     try {
       setRefreshing(true)
       const data = await fetchLogs()
       setLogs(data)
+
+      // Process logs with Log2NLP if enabled
+      if (useNLP) {
+        processLogsWithNLP(data)
+      }
     } catch (error) {
       console.error("Failed to fetch logs:", error)
     } finally {
-      setLoading(false)
       setRefreshing(false)
+    }
+  }
+
+  const processLogsWithNLP = async (logsToProcess: LogEntry[]) => {
+    try {
+      setProcessingNLP(true)
+      const results = await log2nlp.processLogs(logsToProcess)
+      setNlpResults(results)
+    } catch (error) {
+      console.error("Error processing logs with Log2NLP:", error)
+    } finally {
+      setProcessingNLP(false)
     }
   }
 
   useEffect(() => {
     loadLogs()
   }, [])
+
+  // When NLP toggle changes, process logs if enabled
+  useEffect(() => {
+    if (useNLP && logs.length > 0 && !nlpResults) {
+      processLogsWithNLP(logs)
+    }
+  }, [useNLP, logs])
 
   const toggleLogExpansion = (id: string) => {
     setExpandedLogs((prev) => ({
@@ -95,93 +125,159 @@ export default function LogExplorerPage() {
         </div>
       </div>
 
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle>Search & Filter</CardTitle>
-          <CardDescription>Use semantic filters to find relevant log entries</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Tabs defaultValue="basic" className="w-full">
-            <TabsList className="mb-4">
-              <TabsTrigger value="basic">Basic Filters</TabsTrigger>
-              <TabsTrigger value="advanced">Advanced Query</TabsTrigger>
-            </TabsList>
-            <TabsContent value="basic">
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <div className="relative">
-                  <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    type="search"
-                    placeholder="Search logs..."
-                    className="pl-8"
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                  />
-                </div>
-                <Select value={levelFilter} onValueChange={setLevelFilter}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Log Level" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Levels</SelectItem>
-                    <SelectItem value="error">Error</SelectItem>
-                    <SelectItem value="warning">Warning</SelectItem>
-                    <SelectItem value="info">Info</SelectItem>
-                    <SelectItem value="debug">Debug</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select value={sourceFilter} onValueChange={setSourceFilter}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Source" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Sources</SelectItem>
-                    {sources.map((source) => (
-                      <SelectItem key={source} value={source}>
-                        {source}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select value={timeRange} onValueChange={setTimeRange}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Time Range" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="1h">Last Hour</SelectItem>
-                    <SelectItem value="6h">Last 6 Hours</SelectItem>
-                    <SelectItem value="24h">Last 24 Hours</SelectItem>
-                    <SelectItem value="7d">Last 7 Days</SelectItem>
-                    <SelectItem value="30d">Last 30 Days</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </TabsContent>
-            <TabsContent value="advanced">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="md:col-span-2">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle>Search & Filter</CardTitle>
+              <CardDescription>Use semantic filters to find relevant log entries</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Tabs defaultValue="basic" className="w-full">
+                <TabsList className="mb-4">
+                  <TabsTrigger value="basic">Basic Filters</TabsTrigger>
+                  <TabsTrigger value="advanced">Advanced Query</TabsTrigger>
+                </TabsList>
+                <TabsContent value="basic">
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div className="relative">
+                      <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        type="search"
+                        placeholder="Search logs..."
+                        className="pl-8"
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                      />
+                    </div>
+                    <Select value={levelFilter} onValueChange={setLevelFilter}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Log Level" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Levels</SelectItem>
+                        <SelectItem value="error">Error</SelectItem>
+                        <SelectItem value="warning">Warning</SelectItem>
+                        <SelectItem value="info">Info</SelectItem>
+                        <SelectItem value="debug">Debug</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Select value={sourceFilter} onValueChange={setSourceFilter}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Source" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Sources</SelectItem>
+                        {sources.map((source) => (
+                          <SelectItem key={source} value={source}>
+                            {source}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Select value={timeRange} onValueChange={setTimeRange}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Time Range" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="1h">Last Hour</SelectItem>
+                        <SelectItem value="6h">Last 6 Hours</SelectItem>
+                        <SelectItem value="24h">Last 24 Hours</SelectItem>
+                        <SelectItem value="7d">Last 7 Days</SelectItem>
+                        <SelectItem value="30d">Last 30 Days</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </TabsContent>
+                <TabsContent value="advanced">
+                  <div className="space-y-4">
+                    <Input placeholder='Example: level="error" AND source="server" OR message CONTAINS "failed login"' />
+                    <div className="flex flex-wrap gap-2">
+                      <Badge variant="outline" className="cursor-pointer hover:bg-secondary">
+                        level="error"
+                      </Badge>
+                      <Badge variant="outline" className="cursor-pointer hover:bg-secondary">
+                        source="server"
+                      </Badge>
+                      <Badge variant="outline" className="cursor-pointer hover:bg-secondary">
+                        message CONTAINS "failed"
+                      </Badge>
+                      <Badge variant="outline" className="cursor-pointer hover:bg-secondary">
+                        timestamp &gt; "2023-05-01"
+                      </Badge>
+                      <Badge variant="outline" className="cursor-pointer hover:bg-secondary">
+                        metadata.ip="192.168.1.1"
+                      </Badge>
+                    </div>
+                  </div>
+                </TabsContent>
+              </Tabs>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle>Analysis Options</CardTitle>
+              <CardDescription>Configure how logs are processed and analyzed</CardDescription>
+            </CardHeader>
+            <CardContent>
               <div className="space-y-4">
-                <Input placeholder='Example: level="error" AND source="server" OR message CONTAINS "failed login"' />
-                <div className="flex flex-wrap gap-2">
-                  <Badge variant="outline" className="cursor-pointer hover:bg-secondary">
-                    level="error"
-                  </Badge>
-                  <Badge variant="outline" className="cursor-pointer hover:bg-secondary">
-                    source="server"
-                  </Badge>
-                  <Badge variant="outline" className="cursor-pointer hover:bg-secondary">
-                    message CONTAINS "failed"
-                  </Badge>
-                  <Badge variant="outline" className="cursor-pointer hover:bg-secondary">
-                    timestamp &gt; "2023-05-01"
-                  </Badge>
-                  <Badge variant="outline" className="cursor-pointer hover:bg-secondary">
-                    metadata.ip="192.168.1.1"
-                  </Badge>
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="use-nlp">Use Log2NLP</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Process logs with NLP instead of traditional parsing
+                    </p>
+                  </div>
+                  <Switch id="use-nlp" checked={useNLP} onCheckedChange={setUseNLP} />
                 </div>
+
+                {useNLP && (
+                  <>
+                    <div className="flex items-center justify-between">
+                      <div className="space-y-0.5">
+                        <Label htmlFor="anomaly-detection">Anomaly Detection</Label>
+                        <p className="text-xs text-muted-foreground">Automatically detect unusual patterns</p>
+                      </div>
+                      <Switch id="anomaly-detection" defaultChecked />
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <div className="space-y-0.5">
+                        <Label htmlFor="entity-extraction">Entity Extraction</Label>
+                        <p className="text-xs text-muted-foreground">Extract IPs, users, and other entities</p>
+                      </div>
+                      <Switch id="entity-extraction" defaultChecked />
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <div className="space-y-0.5">
+                        <Label htmlFor="summarization">Summarization</Label>
+                        <p className="text-xs text-muted-foreground">Generate natural language summaries</p>
+                      </div>
+                      <Switch id="summarization" defaultChecked />
+                    </div>
+                  </>
+                )}
+
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => processLogsWithNLP(logs)}
+                  disabled={processingNLP || !useNLP || logs.length === 0}
+                >
+                  <Brain className={`h-4 w-4 mr-2 ${processingNLP ? "animate-pulse" : ""}`} />
+                  {processingNLP ? "Processing..." : "Analyze Logs"}
+                </Button>
               </div>
-            </TabsContent>
-          </Tabs>
-        </CardContent>
-      </Card>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+
+      {useNLP && <Log2NLPResults results={nlpResults || {}} isLoading={processingNLP} />}
 
       <Card>
         <CardHeader className="pb-2">

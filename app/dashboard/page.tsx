@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { Bell, Filter, RefreshCw } from "lucide-react"
-import { type Alert as AlertType, fetchAlerts } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -11,22 +10,35 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Skeleton } from "@/components/ui/skeleton"
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer } from "recharts"
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
+import { useAlertStore } from "@/lib/stores/alert-store"
+import type { AlertStatus } from "@/lib/config/stellar-cyber"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 export default function AlertPanel() {
-  const [alerts, setAlerts] = useState<AlertType[]>([])
-  const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState("all")
+  const { alerts, loading, error, activeTab, fetchAlerts, updateAlertStatus, setActiveTab } = useAlertStore()
   const [refreshing, setRefreshing] = useState(false)
+  const [selectedAlert, setSelectedAlert] = useState<any>(null)
+  const [updateStatus, setUpdateStatus] = useState<AlertStatus>("In Progress")
+  const [comments, setComments] = useState("")
 
   const loadAlerts = async () => {
     try {
       setRefreshing(true)
-      const data = await fetchAlerts()
-      setAlerts(data)
+      await fetchAlerts()
     } catch (error) {
       console.error("Failed to fetch alerts:", error)
     } finally {
-      setLoading(false)
       setRefreshing(false)
     }
   }
@@ -42,12 +54,25 @@ export default function AlertPanel() {
     return () => clearInterval(interval)
   }, [])
 
-  const filteredAlerts = activeTab === "all" ? alerts : alerts.filter((alert) => alert.status === activeTab)
+  const handleUpdateStatus = async () => {
+    if (!selectedAlert) return
+
+    await updateAlertStatus({
+      index: selectedAlert.index,
+      alertId: selectedAlert._id,
+      status: updateStatus,
+      comments,
+    })
+
+    setSelectedAlert(null)
+    setComments("")
+  }
 
   // Prepare data for the severity chart
   const severityCounts = alerts.reduce(
     (acc, alert) => {
-      acc[alert.severity] = (acc[alert.severity] || 0) + 1
+      const severity = alert.severity.toLowerCase()
+      acc[severity] = (acc[severity] || 0) + 1
       return acc
     },
     {} as Record<string, number>,
@@ -56,7 +81,7 @@ export default function AlertPanel() {
   const chartData = Object.entries(severityCounts).map(([name, value]) => ({ name, value }))
 
   const severityColor = (severity: string) => {
-    switch (severity) {
+    switch (severity.toLowerCase()) {
       case "critical":
         return "bg-red-500"
       case "high":
@@ -72,18 +97,20 @@ export default function AlertPanel() {
 
   const statusColor = (status: string) => {
     switch (status) {
-      case "new":
+      case "New":
         return "bg-red-500"
-      case "investigating":
+      case "In Progress":
         return "bg-yellow-500"
-      case "resolved":
-        return "bg-green-500"
-      case "false-positive":
+      case "Ignored":
         return "bg-gray-500"
+      case "Closed":
+        return "bg-green-500"
       default:
         return "bg-gray-500"
     }
   }
+
+  const filteredAlerts = activeTab === "all" ? alerts : alerts.filter((alert) => alert.status === activeTab)
 
   return (
     <div className="container mx-auto p-6 space-y-6">
@@ -103,6 +130,14 @@ export default function AlertPanel() {
           </Button>
         </div>
       </div>
+
+      {error && (
+        <Card className="bg-red-50 border-red-200">
+          <CardContent className="p-4">
+            <p className="text-red-600">Error: {error}</p>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <Card className="md:col-span-2">
@@ -163,25 +198,25 @@ export default function AlertPanel() {
                 <div className="flex justify-between items-center">
                   <span className="font-medium">New</span>
                   <Badge variant="outline" className="bg-red-500/10 text-red-500">
-                    {alerts.filter((a) => a.status === "new").length}
+                    {alerts.filter((a) => a.status === "New").length}
                   </Badge>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="font-medium">Investigating</span>
+                  <span className="font-medium">In Progress</span>
                   <Badge variant="outline" className="bg-yellow-500/10 text-yellow-500">
-                    {alerts.filter((a) => a.status === "investigating").length}
+                    {alerts.filter((a) => a.status === "In Progress").length}
                   </Badge>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="font-medium">Resolved</span>
-                  <Badge variant="outline" className="bg-green-500/10 text-green-500">
-                    {alerts.filter((a) => a.status === "resolved").length}
-                  </Badge>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="font-medium">False Positive</span>
+                  <span className="font-medium">Ignored</span>
                   <Badge variant="outline" className="bg-gray-500/10 text-gray-500">
-                    {alerts.filter((a) => a.status === "false-positive").length}
+                    {alerts.filter((a) => a.status === "Ignored").length}
+                  </Badge>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="font-medium">Closed</span>
+                  <Badge variant="outline" className="bg-green-500/10 text-green-500">
+                    {alerts.filter((a) => a.status === "Closed").length}
                   </Badge>
                 </div>
               </div>
@@ -193,13 +228,17 @@ export default function AlertPanel() {
       <Card>
         <CardHeader className="pb-2">
           <CardTitle>Alert Feed</CardTitle>
-          <Tabs defaultValue="all" value={activeTab} onValueChange={setActiveTab}>
+          <Tabs
+            defaultValue="all"
+            value={activeTab}
+            onValueChange={(value) => setActiveTab(value as AlertStatus | "all")}
+          >
             <TabsList>
               <TabsTrigger value="all">All</TabsTrigger>
-              <TabsTrigger value="new">New</TabsTrigger>
-              <TabsTrigger value="investigating">Investigating</TabsTrigger>
-              <TabsTrigger value="resolved">Resolved</TabsTrigger>
-              <TabsTrigger value="false-positive">False Positive</TabsTrigger>
+              <TabsTrigger value="New">New</TabsTrigger>
+              <TabsTrigger value="In Progress">In Progress</TabsTrigger>
+              <TabsTrigger value="Ignored">Ignored</TabsTrigger>
+              <TabsTrigger value="Closed">Closed</TabsTrigger>
             </TabsList>
           </Tabs>
         </CardHeader>
@@ -222,7 +261,7 @@ export default function AlertPanel() {
                 ) : (
                   filteredAlerts.map((alert) => (
                     <motion.div
-                      key={alert.id}
+                      key={alert._id}
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: -10 }}
@@ -242,7 +281,7 @@ export default function AlertPanel() {
                             {alert.status}
                           </Badge>
                           <span className="text-xs text-muted-foreground">
-                            {new Date(alert.timestamp).toLocaleString()}
+                            {new Date(alert.created_at).toLocaleString()}
                           </span>
                         </div>
                       </div>
@@ -252,9 +291,52 @@ export default function AlertPanel() {
                           <Button variant="ghost" size="sm">
                             Details
                           </Button>
-                          <Button variant="outline" size="sm">
-                            Investigate
-                          </Button>
+                          <Dialog>
+                            <DialogTrigger asChild>
+                              <Button variant="outline" size="sm" onClick={() => setSelectedAlert(alert)}>
+                                Update Status
+                              </Button>
+                            </DialogTrigger>
+                            <DialogContent>
+                              <DialogHeader>
+                                <DialogTitle>Update Alert Status</DialogTitle>
+                                <DialogDescription>
+                                  Change the status of this alert and add optional comments.
+                                </DialogDescription>
+                              </DialogHeader>
+                              <div className="space-y-4 py-4">
+                                <div className="space-y-2">
+                                  <Label htmlFor="status">Status</Label>
+                                  <Select
+                                    value={updateStatus}
+                                    onValueChange={(value) => setUpdateStatus(value as AlertStatus)}
+                                  >
+                                    <SelectTrigger>
+                                      <SelectValue placeholder="Select status" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="New">New</SelectItem>
+                                      <SelectItem value="In Progress">In Progress</SelectItem>
+                                      <SelectItem value="Ignored">Ignored</SelectItem>
+                                      <SelectItem value="Closed">Closed</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                <div className="space-y-2">
+                                  <Label htmlFor="comments">Comments</Label>
+                                  <Textarea
+                                    id="comments"
+                                    placeholder="Add comments about this status change..."
+                                    value={comments}
+                                    onChange={(e) => setComments(e.target.value)}
+                                  />
+                                </div>
+                              </div>
+                              <DialogFooter>
+                                <Button onClick={handleUpdateStatus}>Update Status</Button>
+                              </DialogFooter>
+                            </DialogContent>
+                          </Dialog>
                         </div>
                       </div>
                     </motion.div>

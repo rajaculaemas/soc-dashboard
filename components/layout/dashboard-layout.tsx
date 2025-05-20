@@ -5,7 +5,7 @@ import type React from "react"
 import { useEffect } from "react"
 import { useRouter, usePathname } from "next/navigation"
 import { motion } from "framer-motion"
-import { Bell, MessageSquare, Search, Shield, Clock, BookOpen, Users, LogOut } from "lucide-react"
+import { Bell, MessageSquare, Search, Shield, Clock, BookOpen, Users, LogOut, Link } from "lucide-react"
 import { useAuthStore } from "@/lib/stores/auth-store"
 import { Button } from "@/components/ui/button"
 import {
@@ -44,6 +44,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
     { name: "SOARGPT Playbook", href: "/dashboard/playbook", icon: Shield },
     { name: "Incident Timeline", href: "/dashboard/incidents", icon: Clock },
     { name: "Training Center", href: "/dashboard/training", icon: BookOpen },
+    { name: "Integrations", href: "/dashboard/integrations", icon: Link },
   ]
 
   // Only show admin pages for admin role
