@@ -28,7 +28,9 @@ export async function GET(request: NextRequest) {
     // Tambahkan header untuk mencegah caching
     return NextResponse.json(alerts, {
       headers: {
-        "Cache-Control": "no-store, max-age=0",
+        "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+        Pragma: "no-cache",
+        Expires: "0",
       },
     })
   } catch (error) {

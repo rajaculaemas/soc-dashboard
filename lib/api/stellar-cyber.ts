@@ -1,7 +1,5 @@
 import { STELLAR_CYBER_CONFIG, type AlertStatus, type StellarCyberAlert } from "@/lib/config/stellar-cyber"
 import { urlunparse } from "@/lib/utils/url"
-// Tambahkan import validator
-import { validateAndFixAlerts } from "./stellar-cyber-validator"
 
 // Fungsi untuk mendapatkan access token
 export async function getAccessToken(): Promise<string> {
@@ -103,6 +101,8 @@ export async function getAlerts(params: {
     const response = await fetch(url, {
       method: "GET",
       headers,
+      // Tambahkan cache: 'no-store' untuk mencegah caching
+      cache: "no-store",
     })
 
     console.log("Response status:", response.status)
@@ -113,13 +113,34 @@ export async function getAlerts(params: {
     }
 
     const data = await response.json()
-    console.log("Received data:", typeof data, data.length ? `${data.length} items` : "Unknown format")
+    console.log("Received data:", typeof data, Array.isArray(data) ? `${data.length} items` : "Not an array")
 
-    // Validasi dan perbaiki format data
-    const validatedAlerts = validateAndFixAlerts(data)
-    console.log(`Validated ${validatedAlerts.length} alerts`)
+    // Handle berbagai format respons API
+    let alerts: StellarCyberAlert[] = []
 
-    return validatedAlerts
+    if (Array.isArray(data)) {
+      alerts = data
+    } else if (typeof data === "object" && data !== null) {
+      // Beberapa implementasi API mungkin mengembalikan data dalam format yang berbeda
+      if (Array.isArray(data.cases)) {
+        alerts = data.cases
+      } else if (Array.isArray(data.alerts)) {
+        alerts = data.alerts
+      } else if (Array.isArray(data.data)) {
+        alerts = data.data
+      } else if (Array.isArray(data.results)) {
+        alerts = data.results
+      } else {
+        console.error("Unexpected API response format:", data)
+        return generateMockAlerts()
+      }
+    } else {
+      console.error("Invalid API response:", data)
+      return generateMockAlerts()
+    }
+
+    console.log(`Processed ${alerts.length} alerts`)
+    return alerts
   } catch (error) {
     console.error("Error getting alerts:", error)
     return generateMockAlerts()

@@ -35,7 +35,10 @@ export const useAlertStore = create<AlertState>((set, get) => ({
       // Tambahkan timestamp untuk mencegah caching
       queryParams.append("_t", Date.now().toString())
 
-      const response = await fetch(`/api/alerts?${queryParams.toString()}`)
+      const response = await fetch(`/api/alerts?${queryParams.toString()}`, {
+        // Tambahkan opsi cache: 'no-store' untuk mencegah caching
+        cache: "no-store",
+      })
 
       console.log("Alert Store: Response status:", response.status)
 
