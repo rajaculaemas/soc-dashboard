@@ -50,7 +50,7 @@ export default function LoginPage() {
             <div className="flex justify-center mb-2">
               <Shield className="h-12 w-12 text-primary" />
             </div>
-            <CardTitle className="text-2xl">SOC Dashboard</CardTitle>
+            <CardTitle className="text-2xl">AI Driven SecOps</CardTitle>
             <CardDescription>Enter your credentials to access the security operations center</CardDescription>
           </CardHeader>
           <CardContent>

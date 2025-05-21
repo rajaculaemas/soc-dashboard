@@ -1,5 +1,12 @@
+import fetch from "node-fetch";
+import https from "https";
 import { STELLAR_CYBER_CONFIG, type AlertStatus, type StellarCyberAlert } from "@/lib/config/stellar-cyber"
 import { urlunparse } from "@/lib/utils/url"
+
+
+const httpsAgent = new https.Agent({
+  rejectUnauthorized: false, // ðŸ’¥ Abaikan validasi sertifikat
+});
 
 // Fungsi untuk mendapatkan access token
 export async function getAccessToken(): Promise<string> {
@@ -35,6 +42,7 @@ export async function getAccessToken(): Promise<string> {
     const response = await fetch(url, {
       method: "POST",
       headers,
+      agent: httpsAgent,
     })
 
     console.log("Access Token Request Status:", response.status)
@@ -64,152 +72,139 @@ export async function getAlerts(params: {
   const { HOST, TENANT_ID } = STELLAR_CYBER_CONFIG
   const { minScore = 0, status, sort = "timestamp", order = "desc", limit = 100, page = 1 } = params
 
-  console.log("Stellar Cyber Config:", { HOST, TENANT_ID })
-  console.log("Request params:", params)
-
-  // Jika environment variables tidak tersedia, kembalikan data dummy
-  if (!HOST || HOST === "localhost" || !TENANT_ID || TENANT_ID === "demo-tenant") {
+  if (!HOST || !TENANT_ID) {
     console.warn("Stellar Cyber credentials not properly configured. Using mock data.")
     return generateMockAlerts()
   }
 
   try {
-    console.log("Attempting to get access token...")
     const token = await getAccessToken()
-    console.log("Access token received:", token.substring(0, 10) + "...")
-
-    // Jika token adalah fallback token, kembalikan data dummy
-    if (token === "dummy-access-token-for-development" || token === "error-token-for-fallback") {
-      console.warn("Using fallback token. Returning mock data.")
+    if (!token || token === "dummy-access-token-for-development" || token === "error-token-for-fallback") {
+      console.warn("Fallback token used. Returning mock data.")
       return generateMockAlerts()
     }
 
-    // Berdasarkan data yang diunggah, endpoint yang benar mungkin berbeda
-    // Kita akan mencoba endpoint Elasticsearch yang terlihat di data
-    const now = new Date()
-    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
-
-    // Buat query Elasticsearch berdasarkan format yang terlihat di data
-    const query = {
-      size: limit,
-      query: {
-        bool: {
-          must: [
-            {
-              range: {
-                timestamp: {
-                  gte: thirtyDaysAgo.toISOString(),
-                  lte: now.toISOString(),
-                  format: "strict_date_time",
-                },
-              },
-            },
-          ],
-        },
-      },
+    // 1. Build query parameters mirroring Python implementation
+    const queryParams: Record<string, string> = {
+      size: limit.toString()
     }
 
-    // Tambahkan filter status jika ada
+    // 2. Add filters - construct the query step by step
+    const mustClauses = [`tenantid:${TENANT_ID}`]
+    
     if (status) {
-      query.query.bool.must.push({
-        match: {
-          event_status: status,
-        },
-      })
+      mustClauses.push(`event_status:${status}`)
+    }
+    
+    if (minScore > 0) {
+      mustClauses.push(`score:>=${minScore}`)
     }
 
-    // Tambahkan filter tenant ID
-    query.query.bool.must.push({
-      match: {
-        tenantid: TENANT_ID,
-      },
-    })
+    // 3. Date range filter (today in UTC+7)
+    const now = new Date()
+    const tzOffset = 7 * 60 * 60 * 1000 // UTC+7
+    const localTime = new Date(now.getTime() + tzOffset)
+    const startOfDay = new Date(localTime)
+    startOfDay.setHours(0, 0, 0, 0)
+    
+    mustClauses.push(`timestamp:[${startOfDay.toISOString()} TO ${localTime.toISOString()}]`)
 
-    console.log("Sending Query to Elasticsearch:", JSON.stringify(query, null, 2))
+    // 4. Combine all must clauses
+    queryParams.q = mustClauses.join(' AND ')
 
-    // Gunakan endpoint yang terlihat di data
+    // 5. Add sorting if specified
+    if (sort) {
+      queryParams.sort = `${sort}:${order}`
+    }
+
+    // 6. Construct final URL
     const url = urlunparse({
       protocol: "https",
       hostname: HOST,
-      pathname: "/connect/api/v1/search", // Endpoint yang mungkin benar berdasarkan data
+      pathname: "/connect/api/data/aella-ser-*/_search",
+      search: new URLSearchParams(queryParams).toString()
     })
-
-    console.log("Fetching alerts from URL:", url)
 
     const headers = {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
     }
 
+    console.log('Final request URL:', url)
+
+    // 7. Make GET request without body
     const response = await fetch(url, {
-      method: "POST",
+      method: "GET",
       headers,
-      body: JSON.stringify(query),
-      cache: "no-store",
+      agent: httpsAgent,
     })
 
-    console.log("Response Status Code:", response.status)
+    console.log("Response status:", response.status)
 
     if (!response.ok) {
-      console.error(`Failed to get alerts: ${response.status} ${response.statusText}`)
+      const errorText = await response.text()
+      console.error(`Failed to get alerts: ${response.status} ${response.statusText}`, errorText)
       return generateMockAlerts()
     }
 
     const data = await response.json()
-    console.log("Response data structure:", Object.keys(data))
 
-    // Log sampel data untuk debugging
-    if (data.hits && data.hits.hits && data.hits.hits.length > 0) {
-      console.log("Sample hit structure:", Object.keys(data.hits.hits[0]))
-      console.log("Sample _source structure:", Object.keys(data.hits.hits[0]._source))
+    if (!data.hits || !data.hits.hits) {
+      console.warn("No hits in response.")
+      return []
     }
 
-    // Ekstrak dan transformasi data dari format Elasticsearch
-    let alerts: StellarCyberAlert[] = []
+    // 8. Process response data
+    const alerts: StellarCyberAlert[] = data.hits.hits.map((hit: any) => {
+      const source = hit._source || {}
+      const stellar = source.stellar || {}
 
-    if (data.hits && data.hits.hits && Array.isArray(data.hits.hits)) {
-      alerts = data.hits.hits.map((hit: any) => {
-        const source = hit._source || {}
+      // Helper function to handle timestamp conversion
+      const convertTimestamp = (ts: any): string => {
+        if (!ts) return new Date().toISOString()
+        if (typeof ts === 'string' && ts.includes('T')) return ts
+        const timestamp = typeof ts === 'number' ? ts : parseInt(ts)
+        return new Date(timestamp).toISOString()
+      }
 
-        // Transformasi data ke format yang diharapkan aplikasi
-        return {
-          _id: hit._id || source.stellar_uuid || "",
-          index: hit._index || "",
-          title: source.xdr_event?.display_name || source.event_name || "Unknown Alert",
-          description: source.xdr_event?.description || "",
-          severity: source.severity || "medium",
-          status: source.event_status || source.stellar?.status || "New",
-          created_at: new Date(source.timestamp || Date.now()).toISOString(),
-          updated_at: new Date(source.write_time || Date.now()).toISOString(),
-          source: source.msg_origin?.source || "Stellar Cyber",
-          score: source.event_score || source.score || 0,
-          metadata: {
-            srcip: source.srcip,
-            dstip: source.dstip,
-            event_type: source.event_type,
-            event_name: source.event_name,
-            assignee: source.assignee,
-            comments: source.comments,
-            ...source.metadata,
-          },
-          // Tambahkan field asli untuk referensi
+      return {
+        _id: hit._id || stellar.uuid || "",
+        index: hit._index || "",
+        title: source.xdr_event?.display_name || source.event_name || "Unknown Alert",
+        description: source.xdr_event?.description || "",
+        severity: source.severity || "medium",
+        status: source.event_status || stellar.status || "New",
+        created_at: convertTimestamp(source.timestamp),
+        updated_at: convertTimestamp(source.write_time),
+        source: source.msg_origin?.source || "Stellar Cyber",
+        score: source.event_score || source.score || 0,
+        metadata: {
           srcip: source.srcip,
           dstip: source.dstip,
-          event_name: source.event_name,
           event_type: source.event_type,
-          event_score: source.event_score,
+          event_name: source.event_name,
           assignee: source.assignee,
-        }
-      })
-    }
+          comments: source.comments,
+          ...source.metadata,
+        },
+        srcip: source.srcip,
+        dstip: source.dstip,
+        event_name: source.event_name,
+        event_type: source.event_type,
+        event_score: source.event_score,
+        assignee: source.assignee,
+      }
+    })
 
-    console.log(`Processed ${alerts.length} alerts`)
+    console.log(`âœ… Total alerts fetched: ${alerts.length}`)
     return alerts
+
   } catch (error) {
     console.error("Error getting alerts:", error)
     return generateMockAlerts()
   }
 }
+
 
 // Fungsi untuk menghasilkan data dummy
 function generateMockAlerts(): StellarCyberAlert[] {
@@ -282,6 +277,7 @@ export async function updateAlertStatus(params: {
       method: "POST",
       headers,
       body: JSON.stringify(payload),
+      agent: httpsAgent,
     })
 
     console.log("Update status response:", response.status)

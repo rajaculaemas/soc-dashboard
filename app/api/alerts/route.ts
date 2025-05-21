@@ -1,3 +1,5 @@
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+
 import { type NextRequest, NextResponse } from "next/server"
 import { getAlerts } from "@/lib/api/stellar-cyber"
 import type { AlertStatus } from "@/lib/config/stellar-cyber"

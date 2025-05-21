@@ -8,7 +8,7 @@ interface AlertState {
   activeTab: AlertStatus | "all"
   fetchAlerts: (params?: { status?: AlertStatus }) => Promise<void>
   updateAlertStatus: (params: {
-    index: string
+    index: number
     alertId: string
     status: AlertStatus
     comments?: string

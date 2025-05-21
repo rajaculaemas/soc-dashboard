@@ -78,10 +78,27 @@ export default function AlertPanel() {
     setComments("")
   }
 
+  // Fungsi untuk mengubah severity ke string yang konsisten
+const normalizeSeverity = (value: string | number): string => {
+  const map: Record<string | number, string> = {
+    100: "critical",
+    80: "high",
+    60: "medium",
+    40: "low",
+    critical: "critical",
+    high: "high",
+    medium: "medium",
+    low: "low",
+  }
+
+  return map[value] || "medium" // fallback default
+}
+
+
   // Prepare data for the severity chart
   const severityCounts = alerts.reduce(
     (acc, alert) => {
-      const severity = (alert.severity || "medium").toLowerCase()
+      const severity = normalizeSeverity(alert.severity || 40) // bisa angka atau string
       acc[severity] = (acc[severity] || 0) + 1
       return acc
     },
@@ -90,20 +107,25 @@ export default function AlertPanel() {
 
   const chartData = Object.entries(severityCounts).map(([name, value]) => ({ name, value }))
 
-  const severityColor = (severity = "medium") => {
-    switch (severity.toLowerCase()) {
-      case "critical":
-        return "bg-red-500"
-      case "high":
-        return "bg-orange-500"
-      case "medium":
-        return "bg-yellow-500"
-      case "low":
-        return "bg-blue-500"
-      default:
-        return "bg-gray-500"
-    }
+  const severityColor = (severity: string | number = "medium") => {
+  const sev = String(severity).toLowerCase()
+  switch (sev) {
+    case "critical":
+    case "50":
+      return "bg-red-500"
+    case "high":
+    case "45":
+      return "bg-orange-500"
+    case "medium":
+    case "40":
+      return "bg-yellow-500"
+    case "low":
+    case "30":
+      return "bg-blue-500"
+    default:
+      return "bg-gray-500"
   }
+}
 
   const statusColor = (status = "New") => {
     switch (status) {
@@ -301,7 +323,7 @@ export default function AlertPanel() {
                             {alert.status}
                           </Badge>
                           <span className="text-xs text-muted-foreground">
-                            {new Date(alert.created_at || Date.now()).toLocaleString()}
+                            {alert.created_at ? new Date(alert.created_at).toLocaleString() : "Unknown time"}
                           </span>
                         </div>
                       </div>
@@ -318,7 +340,7 @@ export default function AlertPanel() {
                           )}
                         </div>
                         <div className="flex gap-2">
-                          <Button variant="ghost" size="sm">
+                          <Button variant="ghost" size="sm" onClick={() => setSelectedAlert(alert)}>
                             Details
                           </Button>
                           <Dialog>
@@ -377,6 +399,25 @@ export default function AlertPanel() {
           )}
         </CardContent>
       </Card>
+{selectedAlert && (
+  <Dialog open={true} onOpenChange={() => setSelectedAlert(null)}>
+    <DialogContent>
+      <DialogHeader>
+        <DialogTitle>Alert Raw Data</DialogTitle>
+        <DialogDescription>Informasi lengkap dari alert terpilih</DialogDescription>
+      </DialogHeader>
+      <div className="max-h-[400px] overflow-y-auto rounded bg-muted text-sm p-4 whitespace-pre-wrap font-mono">
+        {JSON.stringify(selectedAlert, null, 2)}
+      </div>
+      <DialogFooter>
+        <Button variant="outline" onClick={() => setSelectedAlert(null)}>
+          Close
+        </Button>
+      </DialogFooter>
+    </DialogContent>
+  </Dialog>
+)}
+
     </div>
   )
 }
