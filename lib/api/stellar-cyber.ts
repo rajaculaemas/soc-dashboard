@@ -155,46 +155,64 @@ export async function getAlerts(params: {
     }
 
     // 8. Process response data
-    const alerts: StellarCyberAlert[] = data.hits.hits.map((hit: any) => {
-      const source = hit._source || {}
-      const stellar = source.stellar || {}
+const alerts: StellarCyberAlert[] = data.hits.hits.map((hit: any) => {
+  const source = hit._source || {};
+  const stellar = source.stellar || {};
+  const user_action = source.user_action || {};
+  const dstip_geo = source.dstip_geo || {};
+  const srcip_geo = source.srcip_geo || {};
 
-      // Helper function to handle timestamp conversion
-      const convertTimestamp = (ts: any): string => {
-        if (!ts) return new Date().toISOString()
-        if (typeof ts === 'string' && ts.includes('T')) return ts
-        const timestamp = typeof ts === 'number' ? ts : parseInt(ts)
-        return new Date(timestamp).toISOString()
-      }
+  // Helper function to handle timestamp conversion
+const convertTimestamp = (ts: any): string => {
+  if (!ts) return "";
+  if (typeof ts === 'string' && ts.includes('T')) return ts;
+  
+  // Gunakan UTC untuk konsistensi antara server dan client
+  const timestamp = typeof ts === 'number' ? ts : parseInt(ts);
+  return new Date(timestamp).toISOString(); // Selalu gunakan ISO string untuk konsistensi
+}
 
-      return {
-        _id: hit._id || stellar.uuid || "",
-        index: hit._index || "",
-        title: source.xdr_event?.display_name || source.event_name || "Unknown Alert",
-        description: source.xdr_event?.description || "",
-        severity: source.severity || "medium",
-        status: source.event_status || stellar.status || "New",
-        created_at: convertTimestamp(source.timestamp),
-        updated_at: convertTimestamp(source.write_time),
-        source: source.msg_origin?.source || "Stellar Cyber",
-        score: source.event_score || source.score || 0,
-        metadata: {
-          srcip: source.srcip,
-          dstip: source.dstip,
-          event_type: source.event_type,
-          event_name: source.event_name,
-          assignee: source.assignee,
-          comments: source.comments,
-          ...source.metadata,
-        },
-        srcip: source.srcip,
-        dstip: source.dstip,
-        event_name: source.event_name,
-        event_type: source.event_type,
-        event_score: source.event_score,
-        assignee: source.assignee,
-      }
-    })
+  return {
+    _id: hit._id || stellar.uuid || "",
+    index: hit._index || "",
+    title: source.xdr_event?.display_name || source.event_name || "Unknown Alert",
+    description: source.xdr_event?.description || "",
+    severity: source.severity || "medium",
+    status: source.event_status || stellar.status || "New",
+    created_at: convertTimestamp(source.timestamp),
+    updated_at: convertTimestamp(source.write_time),
+    source: source.msg_origin?.source || "Stellar Cyber",
+    score: source.event_score || source.score || 0,
+    metadata: {
+      srcip: source.srcip,
+      dstip: source.dstip,
+      event_type: source.event_type,
+      event_name: source.event_name,
+      assignee: source.assignee,
+      comments: source.comments,
+      ...source.metadata,
+    },
+    // Field tambahan yang diminta
+    dstip_geo_point: source.dstip_geo_point || "",
+    dstip_host: source.dstip_host || "",
+    dstip_reputation: source.dstip_reputation || "",
+    srcip_reputation: source.srcip_reputation || "",
+    alert_time: convertTimestamp(stellar.alert_time),
+    close_time: convertTimestamp(user_action.last_timestamp),
+    tenant_name: source.tenant_name || "",
+    appid_name: source.appid_name || "",
+    appid_stdport: source.appid_stdport || "",
+    dstport: source.dstport || 0,
+    srcip_username: user_action.last_user || "",
+    // Field yang sudah ada sebelumnya
+    srcip: source.srcip,
+    dstip: source.dstip,
+    event_name: source.event_name,
+    event_type: source.event_type,
+    event_score: source.event_score,
+    assignee: source.assignee,
+  }
+});
 
     console.log(`âœ… Total alerts fetched: ${alerts.length}`)
     return alerts

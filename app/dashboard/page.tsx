@@ -24,6 +24,13 @@ import {
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { SafeDate } from "@/components/ui/safe-date"
+
+// Komponen untuk menampilkan tanggal dengan aman
+// function SafeDate({ date }: { date: string | undefined }) {
+//   if (!date) return <span>Unknown time</span>;
+//   return <span>{new Date(date).toLocaleString()}</span>;
+// }
 
 export default function AlertPanel() {
   const { alerts, loading, error, activeTab, fetchAlerts, updateAlertStatus, setActiveTab } = useAlertStore()
@@ -79,21 +86,20 @@ export default function AlertPanel() {
   }
 
   // Fungsi untuk mengubah severity ke string yang konsisten
-const normalizeSeverity = (value: string | number): string => {
-  const map: Record<string | number, string> = {
-    100: "critical",
-    80: "high",
-    60: "medium",
-    40: "low",
-    critical: "critical",
-    high: "high",
-    medium: "medium",
-    low: "low",
+  const normalizeSeverity = (value: string | number): string => {
+    const map: Record<string | number, string> = {
+      100: "critical",
+      80: "high",
+      60: "medium",
+      40: "low",
+      critical: "critical",
+      high: "high",
+      medium: "medium",
+      low: "low",
+    }
+
+    return map[value] || "medium" // fallback default
   }
-
-  return map[value] || "medium" // fallback default
-}
-
 
   // Prepare data for the severity chart
   const severityCounts = alerts.reduce(
@@ -108,24 +114,24 @@ const normalizeSeverity = (value: string | number): string => {
   const chartData = Object.entries(severityCounts).map(([name, value]) => ({ name, value }))
 
   const severityColor = (severity: string | number = "medium") => {
-  const sev = String(severity).toLowerCase()
-  switch (sev) {
-    case "critical":
-    case "50":
-      return "bg-red-500"
-    case "high":
-    case "45":
-      return "bg-orange-500"
-    case "medium":
-    case "40":
-      return "bg-yellow-500"
-    case "low":
-    case "30":
-      return "bg-blue-500"
-    default:
-      return "bg-gray-500"
+    const sev = String(severity).toLowerCase()
+    switch (sev) {
+      case "critical":
+      case "50":
+        return "bg-red-500"
+      case "high":
+      case "45":
+        return "bg-orange-500"
+      case "medium":
+      case "40":
+        return "bg-yellow-500"
+      case "low":
+      case "30":
+        return "bg-blue-500"
+      default:
+        return "bg-gray-500"
+    }
   }
-}
 
   const statusColor = (status = "New") => {
     switch (status) {
@@ -323,7 +329,7 @@ const normalizeSeverity = (value: string | number): string => {
                             {alert.status}
                           </Badge>
                           <span className="text-xs text-muted-foreground">
-                            {alert.created_at ? new Date(alert.created_at).toLocaleString() : "Unknown time"}
+                            <SafeDate date={alert.created_at} />
                           </span>
                         </div>
                       </div>
@@ -399,25 +405,24 @@ const normalizeSeverity = (value: string | number): string => {
           )}
         </CardContent>
       </Card>
-{selectedAlert && (
-  <Dialog open={true} onOpenChange={() => setSelectedAlert(null)}>
-    <DialogContent>
-      <DialogHeader>
-        <DialogTitle>Alert Raw Data</DialogTitle>
-        <DialogDescription>Informasi lengkap dari alert terpilih</DialogDescription>
-      </DialogHeader>
-      <div className="max-h-[400px] overflow-y-auto rounded bg-muted text-sm p-4 whitespace-pre-wrap font-mono">
-        {JSON.stringify(selectedAlert, null, 2)}
-      </div>
-      <DialogFooter>
-        <Button variant="outline" onClick={() => setSelectedAlert(null)}>
-          Close
-        </Button>
-      </DialogFooter>
-    </DialogContent>
-  </Dialog>
-)}
-
+      {selectedAlert && (
+        <Dialog open={true} onOpenChange={() => setSelectedAlert(null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Alert Raw Data</DialogTitle>
+              <DialogDescription>Informasi lengkap dari alert terpilih</DialogDescription>
+            </DialogHeader>
+            <div className="max-h-[400px] overflow-y-auto rounded bg-muted text-sm p-4 whitespace-pre-wrap font-mono">
+              {JSON.stringify(selectedAlert, null, 2)}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setSelectedAlert(null)}>
+                Close
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   )
 }
