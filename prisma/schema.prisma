@@ -1,0 +1,51 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Integration {
+  id          String   @id @default(cuid())
+  name        String
+  type        String   // "alert" atau "log"
+  source      String   // "stellar-cyber", "firewall", dll
+  status      String   @default("disconnected") // "connected", "disconnected", "pending", "error"
+  method      String   // "api", "agent", "webhook", dll
+  description String?
+  icon        String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  lastSyncAt  DateTime?
+  
+  // Kredensial disimpan sebagai JSON
+  credentials Json
+  
+  // Relasi dengan Alert
+  alerts      Alert[]
+}
+
+model Alert {
+  id          String   @id @default(cuid())
+  externalId  String?  // ID dari sistem eksternal (misalnya Stellar Cyber)
+  index       String?  // Index dari Stellar Cyber
+  title       String
+  description String?
+  severity    String
+  status      String
+  source      String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  timestamp   DateTime
+  score       Int?
+  metadata    Json?
+  
+  // Relasi dengan Integration
+  integrationId String
+  integration   Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+}

@@ -12,6 +12,7 @@ import {
   RefreshCw,
   Trash2,
   XCircle,
+  Download,
 } from "lucide-react"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -33,6 +34,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { useIntegrationStore } from "@/lib/stores/integration-store"
+import { useAlertStore } from "@/lib/stores/alert-store"
 import type { Integration } from "@/lib/types/integration"
 
 interface IntegrationCardProps {
@@ -42,8 +44,11 @@ interface IntegrationCardProps {
 
 export function IntegrationCard({ integration, onEdit }: IntegrationCardProps) {
   const { deleteIntegration, testIntegration } = useIntegrationStore()
+  const { syncAlerts } = useAlertStore()
   const [isDeleting, setIsDeleting] = useState(false)
   const [isTesting, setIsTesting] = useState(false)
+  const [isSyncing, setIsSyncing] = useState(false)
+  const [syncResult, setSyncResult] = useState<{ success: boolean; message: string; count?: number } | null>(null)
 
   const handleDelete = async () => {
     setIsDeleting(true)
@@ -55,6 +60,26 @@ export function IntegrationCard({ integration, onEdit }: IntegrationCardProps) {
     setIsTesting(true)
     await testIntegration(integration.id)
     setIsTesting(false)
+  }
+
+  const handleSync = async () => {
+    setIsSyncing(true)
+    setSyncResult(null)
+    try {
+      const result = await syncAlerts(integration.id)
+      setSyncResult({
+        success: true,
+        message: result.message,
+        count: result.count,
+      })
+    } catch (error) {
+      setSyncResult({
+        success: false,
+        message: (error as Error).message,
+      })
+    } finally {
+      setIsSyncing(false)
+    }
   }
 
   const getStatusIcon = () => {
@@ -152,6 +177,12 @@ export function IntegrationCard({ integration, onEdit }: IntegrationCardProps) {
                   <RefreshCw className="h-4 w-4 mr-2" />
                   Test Connection
                 </DropdownMenuItem>
+                {integration.source === "stellar-cyber" && (
+                  <DropdownMenuItem onClick={handleSync}>
+                    <Download className="h-4 w-4 mr-2" />
+                    Sync Alerts
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuItem>
                   <ExternalLink className="h-4 w-4 mr-2" />
                   View Documentation
@@ -206,16 +237,32 @@ export function IntegrationCard({ integration, onEdit }: IntegrationCardProps) {
               Last synced: {new Date(integration.lastSyncAt).toLocaleString()}
             </p>
           )}
+
+          {syncResult && (
+            <div className={`mt-2 p-2 rounded text-sm ${syncResult.success ? "bg-green-500/10" : "bg-red-500/10"}`}>
+              <p className={syncResult.success ? "text-green-600" : "text-red-600"}>
+                {syncResult.message}
+                {syncResult.count !== undefined && ` (${syncResult.count} alerts)`}
+              </p>
+            </div>
+          )}
         </CardContent>
         <CardFooter className="flex justify-between pt-2">
           <Button variant="outline" size="sm" onClick={() => onEdit(integration)}>
             <Edit className="h-4 w-4 mr-2" />
             Edit
           </Button>
-          <Button variant="outline" size="sm" onClick={handleTest} disabled={isTesting}>
-            <RefreshCw className={`h-4 w-4 mr-2 ${isTesting ? "animate-spin" : ""}`} />
-            {isTesting ? "Testing..." : "Test Connection"}
-          </Button>
+          {integration.source === "stellar-cyber" ? (
+            <Button variant="outline" size="sm" onClick={handleSync} disabled={isSyncing}>
+              <Download className={`h-4 w-4 mr-2 ${isSyncing ? "animate-spin" : ""}`} />
+              {isSyncing ? "Syncing..." : "Sync Alerts"}
+            </Button>
+          ) : (
+            <Button variant="outline" size="sm" onClick={handleTest} disabled={isTesting}>
+              <RefreshCw className={`h-4 w-4 mr-2 ${isTesting ? "animate-spin" : ""}`} />
+              {isTesting ? "Testing..." : "Test Connection"}
+            </Button>
+          )}
         </CardFooter>
       </Card>
     </motion.div>

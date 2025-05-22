@@ -50,13 +50,15 @@ export function IntegrationForm({ integration, onClose }: IntegrationFormProps) 
       // Default credentials based on method
       if (method === "api") {
         setCredentials([
-          { key: "API_URL", value: "", isSecret: false },
-          { key: "API_KEY", value: "", isSecret: true },
+          { key: "host", value: "", isSecret: false },
+          { key: "user_id", value: "", isSecret: false },
+          { key: "refresh_token", value: "", isSecret: true },
+          { key: "tenant_id", value: "", isSecret: false },
         ])
       } else if (method === "agent") {
         setCredentials([
-          { key: "AGENT_ID", value: "", isSecret: false },
-          { key: "AGENT_SECRET", value: "", isSecret: true },
+          { key: "agent_id", value: "", isSecret: false },
+          { key: "agent_secret", value: "", isSecret: true },
         ])
       } else {
         setCredentials([])
@@ -158,7 +160,7 @@ export function IntegrationForm({ integration, onClose }: IntegrationFormProps) 
               id="name"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g., Firewall Alerts"
+              placeholder="e.g., Stellar Cyber SIEM"
             />
           </div>
 
@@ -293,7 +295,7 @@ export function IntegrationForm({ integration, onClose }: IntegrationFormProps) 
                           </Button>
                         </TooltipTrigger>
                         <TooltipContent>
-                          <p className="text-xs">Environment variable name</p>
+                          <p className="text-xs">Credential key name</p>
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
@@ -302,7 +304,7 @@ export function IntegrationForm({ integration, onClose }: IntegrationFormProps) 
                     id={`cred-key-${index}`}
                     value={cred.key}
                     onChange={(e) => handleCredentialChange(index, "key", e.target.value)}
-                    placeholder="API_KEY"
+                    placeholder="host"
                   />
                 </div>
                 <div className="flex-1 space-y-2">
@@ -327,7 +329,7 @@ export function IntegrationForm({ integration, onClose }: IntegrationFormProps) 
                       type={cred.isSecret && !showSecrets[index] ? "password" : "text"}
                       value={cred.value}
                       onChange={(e) => handleCredentialChange(index, "value", e.target.value)}
-                      placeholder="your-api-key"
+                      placeholder="your-value"
                     />
                     {cred.isSecret && (
                       <Button
@@ -358,19 +360,6 @@ export function IntegrationForm({ integration, onClose }: IntegrationFormProps) 
           </div>
         )}
       </div>
-
-      {method === "agent" && activeTab === "log" && (
-        <div className="space-y-2 border rounded-md p-4 bg-muted/50">
-          <h3 className="font-medium">Agent Installation</h3>
-          <p className="text-sm text-muted-foreground">
-            After saving this integration, you will receive an agent installation script. Run this script on the systems
-            you want to collect logs from.
-          </p>
-          <pre className="bg-background p-2 rounded-md text-xs overflow-x-auto">
-            <code>curl -sSL https://example.com/install-agent.sh | sudo bash -s -- --key YOUR_AGENT_KEY</code>
-          </pre>
-        </div>
-      )}
 
       <div className="flex justify-end gap-2">
         <Button type="button" variant="outline" onClick={onClose}>

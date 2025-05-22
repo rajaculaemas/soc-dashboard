@@ -1,7 +1,5 @@
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
-
 import { type NextRequest, NextResponse } from "next/server"
-import { getAlerts } from "@/lib/api/stellar-cyber"
+import prisma from "@/lib/prisma"
 import type { AlertStatus } from "@/lib/config/stellar-cyber"
 
 export async function GET(request: NextRequest) {
@@ -9,47 +7,70 @@ export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams
     const minScore = searchParams.get("minScore") ? Number.parseInt(searchParams.get("minScore") as string) : undefined
     const status = searchParams.get("status") as AlertStatus | undefined
-    const sort = searchParams.get("sort") || undefined
-    const order = searchParams.get("order") as "asc" | "desc" | undefined
-    const limit = searchParams.get("limit") ? Number.parseInt(searchParams.get("limit") as string) : undefined
-    const page = searchParams.get("page") ? Number.parseInt(searchParams.get("page") as string) : undefined
+    const sort = searchParams.get("sort") || "timestamp"
+    const order = (searchParams.get("order") as "asc" | "desc") || "desc"
+    const limit = searchParams.get("limit") ? Number.parseInt(searchParams.get("limit") as string) : 100
+    const page = searchParams.get("page") ? Number.parseInt(searchParams.get("page") as string) : 1
+    const integrationId = searchParams.get("integrationId") || undefined
 
-    console.log("API Route: Fetching alerts with params:", { minScore, status, sort, order, limit, page })
+    // Buat filter
+    const where: any = {}
 
-    const alerts = await getAlerts({
-      minScore,
-      status,
-      sort,
-      order,
-      limit,
-      page,
-    })
+    if (minScore) {
+      where.score = { gte: minScore }
+    }
 
-    console.log(`API Route: Returning ${alerts.length} alerts`)
+    if (status) {
+      where.status = status
+    }
 
-    // Tambahkan header untuk mencegah caching
-    return NextResponse.json(alerts, {
-      headers: {
-        "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
-        Pragma: "no-cache",
-        Expires: "0",
+    if (integrationId) {
+      where.integrationId = integrationId
+    }
+
+    // Hitung total alert
+    const totalAlerts = await prisma.alert.count({ where })
+
+    // Ambil alert dengan pagination
+    const alerts = await prisma.alert.findMany({
+      where,
+      orderBy: {
+        [sort]: order,
+      },
+      skip: (page - 1) * limit,
+      take: limit,
+      include: {
+        integration: {
+          select: {
+            id: true,
+            name: true,
+            source: true,
+          },
+        },
       },
     })
+
+    // Tambahkan header untuk mencegah caching
+    return NextResponse.json(
+      {
+        data: alerts,
+        pagination: {
+          total: totalAlerts,
+          page,
+          limit,
+          pages: Math.ceil(totalAlerts / limit),
+        },
+      },
+      {
+        headers: {
+          "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+          Pragma: "no-cache",
+          Expires: "0",
+        },
+      },
+    )
   } catch (error) {
     console.error("Error in /api/alerts:", error)
-    // Return mock data instead of error to keep the app running
-    const mockAlerts = Array.from({ length: 5 }, (_, i) => ({
-      _id: `fallback-alert-${i}`,
-      index: `fallback-index-${i}`,
-      title: `Fallback Alert ${i}`,
-      description: `This is a fallback alert generated due to an error in the API.`,
-      severity: ["critical", "high", "medium", "low", "info"][Math.floor(Math.random() * 5)],
-      status: ["New", "In Progress", "Ignored", "Closed"][Math.floor(Math.random() * 4)] as AlertStatus,
-      created_at: new Date(Date.now() - Math.random() * 86400000 * 7).toISOString(),
-      updated_at: new Date(Date.now() - Math.random() * 86400000 * 3).toISOString(),
-      source: "Fallback Source",
-    }))
-
-    return NextResponse.json(mockAlerts)
+    return NextResponse.json({ error: "Failed to fetch alerts" }, { status: 500 })
   }
 }

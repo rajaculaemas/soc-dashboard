@@ -1,18 +1,38 @@
 import { create } from "zustand"
-import type { AlertStatus, StellarCyberAlert } from "@/lib/config/stellar-cyber"
+import type { AlertStatus } from "@/lib/config/stellar-cyber"
+
+interface Alert {
+  id: string
+  externalId?: string
+  index?: string
+  title: string
+  description?: string
+  severity: string
+  status: string
+  source: string
+  timestamp: string
+  score?: number
+  metadata?: any
+  integrationId: string
+  integration?: {
+    id: string
+    name: string
+    source: string
+  }
+}
 
 interface AlertState {
-  alerts: StellarCyberAlert[]
+  alerts: Alert[]
   loading: boolean
   error: string | null
   activeTab: AlertStatus | "all"
   fetchAlerts: (params?: { status?: AlertStatus }) => Promise<void>
   updateAlertStatus: (params: {
-    index: number
     alertId: string
     status: AlertStatus
     comments?: string
   }) => Promise<void>
+  syncAlerts: (integrationId: string) => Promise<void>
   setActiveTab: (tab: AlertStatus | "all") => void
 }
 
@@ -30,13 +50,10 @@ export const useAlertStore = create<AlertState>((set, get) => ({
         queryParams.append("status", params.status)
       }
 
-      console.log("Alert Store: Fetching alerts with params:", params)
-
       // Tambahkan timestamp untuk mencegah caching
       queryParams.append("_t", Date.now().toString())
 
       const response = await fetch(`/api/alerts?${queryParams.toString()}`, {
-        // Tambahkan opsi cache: 'no-store' untuk mencegah caching
         cache: "no-store",
         headers: {
           "Cache-Control": "no-cache, no-store, must-revalidate",
@@ -45,28 +62,24 @@ export const useAlertStore = create<AlertState>((set, get) => ({
         },
       })
 
-      console.log("Alert Store: Response status:", response.status)
-
       if (!response.ok) {
-        throw new Error(`Failed to fetch alerts: ${response.status} ${response.statusText}`)
+        throw new Error(`Failed to fetch alerts: ${response.status}`)
       }
 
       const data = await response.json()
-      console.log("Alert Store: Received data:", data.length ? `${data.length} alerts` : "No alerts or invalid format")
 
-      // Validasi format data
-      if (!Array.isArray(data)) {
-        throw new Error("API did not return an array")
+      if (!data.data || !Array.isArray(data.data)) {
+        throw new Error("API did not return valid data")
       }
 
-      set({ alerts: data, loading: false })
+      set({ alerts: data.data, loading: false })
     } catch (error) {
       console.error("Error fetching alerts:", error)
       set({ error: (error as Error).message, loading: false })
     }
   },
 
-  updateAlertStatus: async ({ index, alertId, status, comments }) => {
+  updateAlertStatus: async ({ alertId, status, comments }) => {
     try {
       const response = await fetch("/api/alerts/update", {
         method: "POST",
@@ -74,7 +87,6 @@ export const useAlertStore = create<AlertState>((set, get) => ({
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          index,
           alertId,
           status,
           comments,
@@ -82,7 +94,7 @@ export const useAlertStore = create<AlertState>((set, get) => ({
       })
 
       if (!response.ok) {
-        throw new Error(`Failed to update alert status: ${response.status} ${response.statusText}`)
+        throw new Error(`Failed to update alert status: ${response.status}`)
       }
 
       // Refresh alerts after update
@@ -90,6 +102,36 @@ export const useAlertStore = create<AlertState>((set, get) => ({
     } catch (error) {
       console.error("Error updating alert status:", error)
       set({ error: (error as Error).message })
+    }
+  },
+
+  syncAlerts: async (integrationId) => {
+    set({ loading: true, error: null })
+    try {
+      const response = await fetch("/api/alerts/sync", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          integrationId,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error(`Failed to sync alerts: ${response.status}`)
+      }
+
+      const result = await response.json()
+
+      // Refresh alerts after sync
+      await get().fetchAlerts()
+
+      return result
+    } catch (error) {
+      console.error("Error syncing alerts:", error)
+      set({ error: (error as Error).message, loading: false })
+      throw error
     }
   },
 

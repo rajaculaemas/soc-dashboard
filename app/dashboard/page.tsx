@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { Bell, Filter, RefreshCw, AlertCircle } from "lucide-react"
+import { Bell, Filter, RefreshCw, AlertCircle, Download } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer } from "recharts"
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
 import { useAlertStore } from "@/lib/stores/alert-store"
+import { useIntegrationStore } from "@/lib/stores/integration-store"
 import type { AlertStatus } from "@/lib/config/stellar-cyber"
 import {
   Dialog,
@@ -26,18 +27,16 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { SafeDate } from "@/components/ui/safe-date"
 
-// Komponen untuk menampilkan tanggal dengan aman
-// function SafeDate({ date }: { date: string | undefined }) {
-//   if (!date) return <span>Unknown time</span>;
-//   return <span>{new Date(date).toLocaleString()}</span>;
-// }
-
 export default function AlertPanel() {
-  const { alerts, loading, error, activeTab, fetchAlerts, updateAlertStatus, setActiveTab } = useAlertStore()
+  const { alerts, loading, error, activeTab, fetchAlerts, updateAlertStatus, setActiveTab, syncAlerts } =
+    useAlertStore()
+  const { integrations, fetchIntegrations } = useIntegrationStore()
   const [refreshing, setRefreshing] = useState(false)
+  const [syncing, setSyncing] = useState(false)
   const [selectedAlert, setSelectedAlert] = useState<any>(null)
   const [updateStatus, setUpdateStatus] = useState<AlertStatus>("In Progress")
   const [comments, setComments] = useState("")
+  const [selectedIntegration, setSelectedIntegration] = useState<string | null>(null)
 
   const loadAlerts = async () => {
     try {
@@ -50,8 +49,23 @@ export default function AlertPanel() {
     }
   }
 
+  const handleSyncAlerts = async () => {
+    if (!selectedIntegration) return
+
+    try {
+      setSyncing(true)
+      await syncAlerts(selectedIntegration)
+      await loadAlerts()
+    } catch (error) {
+      console.error("Failed to sync alerts:", error)
+    } finally {
+      setSyncing(false)
+    }
+  }
+
   useEffect(() => {
     loadAlerts()
+    fetchIntegrations()
 
     // Set up polling for real-time updates
     const interval = setInterval(() => {
@@ -61,22 +75,11 @@ export default function AlertPanel() {
     return () => clearInterval(interval)
   }, [])
 
-  // Tambahkan useEffect untuk logging
-  useEffect(() => {
-    console.log("Alert Panel: Current alerts state:", {
-      count: alerts.length,
-      loading,
-      error,
-      activeTab,
-    })
-  }, [alerts, loading, error, activeTab])
-
   const handleUpdateStatus = async () => {
     if (!selectedAlert) return
 
     await updateAlertStatus({
-      index: selectedAlert.index,
-      alertId: selectedAlert._id,
+      alertId: selectedAlert.id,
       status: updateStatus,
       comments,
     })
@@ -150,6 +153,9 @@ export default function AlertPanel() {
 
   const filteredAlerts = activeTab === "all" ? alerts : alerts.filter((alert) => alert.status === activeTab)
 
+  // Filter Stellar Cyber integrations for sync dropdown
+  const stellarIntegrations = integrations.filter((i) => i.source === "stellar-cyber" && i.status === "connected")
+
   return (
     <div className="container mx-auto p-6 space-y-6">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -162,6 +168,29 @@ export default function AlertPanel() {
             <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? "animate-spin" : ""}`} />
             Refresh
           </Button>
+
+          {stellarIntegrations.length > 0 && (
+            <div className="flex items-center gap-2">
+              <Select value={selectedIntegration || ""} onValueChange={setSelectedIntegration}>
+                <SelectTrigger className="w-[180px]">
+                  <SelectValue placeholder="Select integration" />
+                </SelectTrigger>
+                <SelectContent>
+                  {stellarIntegrations.map((integration) => (
+                    <SelectItem key={integration.id} value={integration.id}>
+                      {integration.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <Button variant="outline" size="sm" onClick={handleSyncAlerts} disabled={syncing || !selectedIntegration}>
+                <Download className={`h-4 w-4 mr-2 ${syncing ? "animate-spin" : ""}`} />
+                {syncing ? "Syncing..." : "Sync Alerts"}
+              </Button>
+            </div>
+          )}
+
           <Button variant="outline" size="sm">
             <Filter className="h-4 w-4 mr-2" />
             Filter
@@ -309,7 +338,7 @@ export default function AlertPanel() {
                 ) : (
                   filteredAlerts.map((alert) => (
                     <motion.div
-                      key={alert._id}
+                      key={alert.id}
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: -10 }}
@@ -329,20 +358,20 @@ export default function AlertPanel() {
                             {alert.status}
                           </Badge>
                           <span className="text-xs text-muted-foreground">
-                            <SafeDate date={alert.created_at} />
+                            <SafeDate date={alert.timestamp} />
                           </span>
                         </div>
                       </div>
                       <div className="mt-2 flex items-center justify-between">
                         <div className="flex flex-col">
                           <span className="text-xs text-muted-foreground">Source: {alert.source}</span>
-                          {alert.srcip && alert.dstip && (
+                          {alert.metadata?.srcip && alert.metadata?.dstip && (
                             <span className="text-xs text-muted-foreground">
-                              {alert.srcip} → {alert.dstip}
+                              {alert.metadata.srcip} → {alert.metadata.dstip}
                             </span>
                           )}
-                          {alert.assignee && (
-                            <span className="text-xs text-muted-foreground">Assignee: {alert.assignee}</span>
+                          {alert.metadata?.assignee && (
+                            <span className="text-xs text-muted-foreground">Assignee: {alert.metadata.assignee}</span>
                           )}
                         </div>
                         <div className="flex gap-2">

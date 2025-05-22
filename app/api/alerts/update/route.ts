@@ -1,17 +1,18 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { updateAlertStatus } from "@/lib/api/stellar-cyber"
+import prisma from "@/lib/prisma"
+import { updateAlertStatusInStellarCyber } from "@/lib/api/stellar-cyber-client"
 import type { AlertStatus } from "@/lib/config/stellar-cyber"
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { index, alertId, status, comments } = body
+    const { alertId, status, comments } = body
 
-    if (!index || !alertId || !status) {
-      return NextResponse.json({ error: "Missing required fields: index, alertId, or status" }, { status: 400 })
+    if (!alertId || !status) {
+      return NextResponse.json({ error: "Missing required fields: alertId or status" }, { status: 400 })
     }
 
-    // Validate status
+    // Validasi status
     const validStatuses: AlertStatus[] = ["New", "In Progress", "Ignored", "Closed"]
     if (!validStatuses.includes(status as AlertStatus)) {
       return NextResponse.json(
@@ -20,21 +21,50 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const result = await updateAlertStatus({
-      index,
-      alertId,
-      status: status as AlertStatus,
-      comments,
+    // Cari alert di database
+    const alert = await prisma.alert.findUnique({
+      where: { id: alertId },
+      include: {
+        integration: true,
+      },
     })
 
-    return NextResponse.json(result)
-  } catch (error) {
-    console.error("Error in /api/alerts/update:", error)
-    // Return success response to keep the app running
+    if (!alert) {
+      return NextResponse.json({ error: "Alert not found" }, { status: 404 })
+    }
+
+    // Update status di database
+    const updatedAlert = await prisma.alert.update({
+      where: { id: alertId },
+      data: {
+        status: status as AlertStatus,
+        updatedAt: new Date(),
+      },
+    })
+
+    // Jika alert berasal dari Stellar Cyber, update juga di sana
+    if (alert.integration.source === "stellar-cyber" && alert.externalId) {
+      try {
+        await updateAlertStatusInStellarCyber({
+          credentials: alert.integration.credentials,
+          alertId: alert.externalId,
+          index: alert.index || "",
+          status: status as AlertStatus,
+          comments,
+        })
+      } catch (error) {
+        console.error("Error updating alert status in Stellar Cyber:", error)
+        // Lanjutkan meskipun gagal update di Stellar Cyber
+      }
+    }
+
     return NextResponse.json({
       success: true,
-      message: "Status updated (fallback response due to error)",
-      fallback: true,
+      message: "Alert status updated successfully",
+      alert: updatedAlert,
     })
+  } catch (error) {
+    console.error("Error in /api/alerts/update:", error)
+    return NextResponse.json({ error: "Failed to update alert status" }, { status: 500 })
   }
 }
