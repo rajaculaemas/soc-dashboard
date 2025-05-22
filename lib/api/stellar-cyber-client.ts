@@ -10,7 +10,10 @@ const httpsAgent = new https.Agent({
 
 // Fungsi untuk mendapatkan access token
 export async function getAccessToken(credentials: any): Promise<string> {
-  const { host, user_id, refresh_token } = credentials
+  // Ekstrak kredensial dari parameter, bukan dari config
+  const host = credentials.host || credentials.STELLAR_CYBER_HOST
+  const user_id = credentials.user_id || credentials.STELLAR_CYBER_USER_ID
+  const refresh_token = credentials.refresh_token || credentials.STELLAR_CYBER_REFRESH_TOKEN
 
   console.log("Checking credentials:", {
     host: host ? "configured" : "missing",
@@ -73,7 +76,8 @@ export async function testStellarCyberConnection(credentials: any): Promise<{ su
     }
 
     // Jika berhasil mendapatkan token, coba ambil data sederhana untuk memastikan koneksi berfungsi
-    const { host, tenant_id } = credentials
+    const host = credentials.host || credentials.STELLAR_CYBER_HOST
+    const tenant_id = credentials.tenant_id || credentials.STELLAR_CYBER_TENANT_ID
 
     const url = urlunparse({
       protocol: "https",
@@ -118,7 +122,10 @@ export async function testStellarCyberConnection(credentials: any): Promise<{ su
 
 // Fungsi untuk mengambil alert dari Stellar Cyber
 export async function fetchAlertsFromStellarCyber(credentials: any, params: any = {}): Promise<StellarCyberAlert[]> {
-  const { host, tenant_id } = credentials
+  // Ekstrak kredensial dari parameter, bukan dari config
+  const host = credentials.host || credentials.STELLAR_CYBER_HOST
+  const tenant_id = credentials.tenant_id || credentials.STELLAR_CYBER_TENANT_ID
+
   const { minScore = 0, status, sort = "timestamp", order = "desc", limit = 100, page = 1 } = params
 
   if (!host || !tenant_id) {
@@ -281,7 +288,10 @@ export async function updateAlertStatusInStellarCyber(params: {
   comments?: string
 }): Promise<any> {
   const { credentials, alertId, index, status, comments = "" } = params
-  const { host, tenant_id } = credentials
+
+  // Ekstrak kredensial dari parameter, bukan dari config
+  const host = credentials.host || credentials.STELLAR_CYBER_HOST
+  const tenant_id = credentials.tenant_id || credentials.STELLAR_CYBER_TENANT_ID
 
   // Jika kredensial tidak lengkap, kembalikan respons dummy
   if (!host || !tenant_id) {

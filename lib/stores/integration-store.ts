@@ -22,17 +22,48 @@ export const useIntegrationStore = create<IntegrationState>((set, get) => ({
   fetchIntegrations: async () => {
     set({ loading: true, error: null })
     try {
-      const response = await fetch("/api/integrations")
+      console.log("Fetching integrations from API...")
+
+      // Tambahkan timestamp untuk mencegah caching
+      const timestamp = new Date().getTime()
+      const response = await fetch(`/api/integrations?_t=${timestamp}`, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": "no-cache, no-store, must-revalidate",
+          Pragma: "no-cache",
+          Expires: "0",
+        },
+      })
+
+      console.log("Response status:", response.status)
 
       if (!response.ok) {
+        // Jika status 405, coba dengan fallback
+        if (response.status === 405) {
+          console.warn("GET method not allowed, using fallback data")
+          // Gunakan data fallback atau coba dengan metode lain
+          set({
+            integrations: [],
+            loading: false,
+          })
+          return
+        }
+
         throw new Error(`Failed to fetch integrations: ${response.status}`)
       }
 
       const data = await response.json()
+      console.log(`Fetched ${data.length} integrations`)
       set({ integrations: data, loading: false })
     } catch (error) {
       console.error("Error fetching integrations:", error)
-      set({ error: (error as Error).message, loading: false })
+      set({
+        error: (error as Error).message,
+        loading: false,
+        // Tetap gunakan data yang ada atau array kosong jika tidak ada
+        integrations: get().integrations.length > 0 ? get().integrations : [],
+      })
     }
   },
 

@@ -19,7 +19,18 @@ export async function POST(request: NextRequest) {
 
       // Uji koneksi berdasarkan jenis integrasi
       if (integration.source === "stellar-cyber") {
-        const result = await testStellarCyberConnection(integration.credentials)
+        // Ekstrak kredensial dari database
+        const credentials = integration.credentials as Record<string, any>
+
+        // Pastikan format kredensial sesuai dengan yang diharapkan oleh fungsi testStellarCyberConnection
+        const formattedCredentials = {
+          host: credentials.STELLAR_CYBER_HOST || credentials.host,
+          user_id: credentials.STELLAR_CYBER_USER_ID || credentials.user_id,
+          refresh_token: credentials.STELLAR_CYBER_REFRESH_TOKEN || credentials.refresh_token,
+          tenant_id: credentials.STELLAR_CYBER_TENANT_ID || credentials.tenant_id,
+        }
+
+        const result = await testStellarCyberConnection(formattedCredentials)
 
         // Update status integrasi
         await prisma.integration.update({
@@ -40,7 +51,15 @@ export async function POST(request: NextRequest) {
 
     // Jika tidak ada ID, uji koneksi dengan kredensial yang diberikan
     if (data.source === "stellar-cyber" && data.credentials) {
-      const result = await testStellarCyberConnection(data.credentials)
+      // Pastikan format kredensial sesuai dengan yang diharapkan oleh fungsi testStellarCyberConnection
+      const formattedCredentials = {
+        host: data.credentials.STELLAR_CYBER_HOST || data.credentials.host,
+        user_id: data.credentials.STELLAR_CYBER_USER_ID || data.credentials.user_id,
+        refresh_token: data.credentials.STELLAR_CYBER_REFRESH_TOKEN || data.credentials.refresh_token,
+        tenant_id: data.credentials.STELLAR_CYBER_TENANT_ID || data.credentials.tenant_id,
+      }
+
+      const result = await testStellarCyberConnection(formattedCredentials)
       return NextResponse.json(result)
     }
 

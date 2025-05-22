@@ -25,8 +25,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Only Stellar Cyber integrations can be synced" }, { status: 400 })
     }
 
+    // Ekstrak kredensial dari database
+    const credentials = integration.credentials as Record<string, any>
+
+    // Pastikan format kredensial sesuai dengan yang diharapkan oleh fungsi fetchAlertsFromStellarCyber
+    const formattedCredentials = {
+      host: credentials.STELLAR_CYBER_HOST || credentials.host,
+      user_id: credentials.STELLAR_CYBER_USER_ID || credentials.user_id,
+      refresh_token: credentials.STELLAR_CYBER_REFRESH_TOKEN || credentials.refresh_token,
+      tenant_id: credentials.STELLAR_CYBER_TENANT_ID || credentials.tenant_id,
+    }
+
     // Ambil alert dari Stellar Cyber
-    const stellarAlerts = await fetchAlertsFromStellarCyber(integration.credentials)
+    const stellarAlerts = await fetchAlertsFromStellarCyber(formattedCredentials)
 
     // Simpan alert ke database
     const savedAlerts = []

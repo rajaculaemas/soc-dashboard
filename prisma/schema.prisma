@@ -6,7 +6,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -19,33 +19,37 @@ model Integration {
   method      String   // "api", "agent", "webhook", dll
   description String?
   icon        String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  lastSyncAt  DateTime?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  lastSyncAt  DateTime? @map("last_sync_at")
   
   // Kredensial disimpan sebagai JSON
   credentials Json
   
   // Relasi dengan Alert
   alerts      Alert[]
+
+  @@map("integrations")
 }
 
 model Alert {
   id          String   @id @default(cuid())
-  externalId  String?  // ID dari sistem eksternal (misalnya Stellar Cyber)
+  externalId  String?  @map("external_id") // ID dari sistem eksternal (misalnya Stellar Cyber)
   index       String?  // Index dari Stellar Cyber
   title       String
   description String?
   severity    String
   status      String
   source      String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
   timestamp   DateTime
   score       Int?
   metadata    Json?
   
   // Relasi dengan Integration
-  integrationId String
+  integrationId String @map("integration_id")
   integration   Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+
+  @@map("alerts")
 }
