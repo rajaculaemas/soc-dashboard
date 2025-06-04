@@ -58,29 +58,51 @@ export function IntegrationCard({ integration, onEdit }: IntegrationCardProps) {
 
   const handleTest = async () => {
     setIsTesting(true)
-    await testIntegration(integration.id)
-    setIsTesting(false)
-  }
-
-  const handleSync = async () => {
-    setIsSyncing(true)
-    setSyncResult(null)
+    console.log(`Testing integration ${integration.id} (${integration.name})`)
     try {
-      const result = await syncAlerts(integration.id)
-      setSyncResult({
-        success: true,
-        message: result.message,
-        count: result.count,
-      })
+      const result = await testIntegration(integration.id)
+      console.log("Test result:", result)
     } catch (error) {
-      setSyncResult({
-        success: false,
-        message: (error as Error).message,
-      })
+      console.error("Test error:", error)
     } finally {
-      setIsSyncing(false)
+      setIsTesting(false)
     }
   }
+
+const handleSync = async () => {
+  setIsSyncing(true)
+  setSyncResult(null)
+  console.log(`Syncing alerts for integration ${integration.id} (${integration.name})`)
+  try {
+      const result = await syncAlerts(integration.id)
+      console.log("Sync result:", result)
+
+      setSyncResult({
+        success: true,
+        message: result?.message || "Sync success",
+        count: result?.stats?.synced || 0,
+      })
+  } catch (error) {
+    console.error("Sync error:", error)
+
+    let message = "Gagal melakukan sync alert"
+
+    if (error instanceof Error) {
+      message = error.message
+    } else if (typeof error === "object" && error !== null && "message" in error) {
+      message = String((error as any).message)
+    } else if (typeof error === "string") {
+      message = error
+    }
+
+    setSyncResult({
+      success: false,
+      message,
+    })
+  } finally {
+    setIsSyncing(false)
+  }
+}
 
   const getStatusIcon = () => {
     switch (integration.status) {

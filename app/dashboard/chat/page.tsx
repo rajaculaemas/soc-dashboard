@@ -1,220 +1,293 @@
 "use client"
 
 import type React from "react"
-
 import { useState, useRef, useEffect } from "react"
-import { motion, AnimatePresence } from "framer-motion"
-import { Send, Bot, User, Loader2, Paperclip, Trash } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Textarea } from "@/components/ui/textarea"
-import { useAuthStore } from "@/lib/stores/auth-store"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import { Badge } from "@/components/ui/badge"
+import { Separator } from "@/components/ui/separator"
+import { Send, Bot, User, Loader2, Database, Trash } from "lucide-react"
+import { cn } from "@/lib/utils"
 
 interface Message {
   id: string
-  content: string
   role: "user" | "assistant"
+  content: string
   timestamp: Date
+  isLoading?: boolean
 }
 
 export default function ChatPage() {
-  const { user } = useAuthStore()
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: "1",
-      content: "Hello! I am SOCGPT, your security operations assistant. How can I help you today?",
-      role: "assistant",
-      timestamp: new Date(),
-    },
-  ])
+  // State dan ref yang sudah ada
+  const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
   const [isLoading, setIsLoading] = useState(false)
-  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const scrollAreaRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const initialized = useRef(false)
 
+  // 1. Load messages dari localStorage saat komponen mount
+  useEffect(() => {
+    if (typeof window === "undefined" || initialized.current) return
+    
+    try {
+      const saved = localStorage.getItem("soc_assistant_chat")
+      if (saved) {
+        const parsed = JSON.parse(saved)
+        setMessages(parsed.map((msg: any) => ({
+          ...msg,
+          timestamp: new Date(msg.timestamp)
+        })))
+      } else {
+        // Set default message jika tidak ada history
+        setMessages([{
+          id: "welcome",
+          role: "assistant",
+          content: "Hello! Saya SOC Assistant. Saya bisa membantu menganalisis alert, investigasi log dan membantu membuat saran/rekomendasi terkait alert (harapannya). silahkan coba bertanya tentang alert atau security trend yang terjadi di environment anda",
+          timestamp: new Date()
+        }])
+      }
+    } catch (error) {
+      console.error("Failed to load chat:", error)
+      localStorage.removeItem("soc_assistant_chat")
+    }
+
+    initialized.current = true
+  }, [])
+
+  // 2. Auto-save ke localStorage saat messages berubah
+  useEffect(() => {
+    if (!initialized.current) return
+    try {
+      localStorage.setItem("soc_assistant_chat", JSON.stringify(messages))
+    } catch (error) {
+      console.error("Failed to save chat:", error)
+    }
+  }, [messages])
+
+  // 3. Fungsi clear chat
+  const clearChat = () => {
+    setMessages([{
+      id: "welcome",
+      role: "assistant",
+      content: "Hello! Saya SOC Assistant. Saya bisa membantu menganalisis alert, investigasi log dan membantu membuat saran/rekomendasi terkait alert (harapannya). silahkan coba bertanya tentang alert atau security trend yang terjadi di environment anda",
+      timestamp: new Date()
+    }])
+    localStorage.removeItem("soc_assistant_chat")
+  }
+
+  // Fungsi-fungsi yang sudah ada (TIDAK DIUBAH)
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+    if (scrollAreaRef.current) {
+      const scrollContainer = scrollAreaRef.current.querySelector("[data-radix-scroll-area-viewport]")
+      if (scrollContainer) {
+        scrollContainer.scrollTop = scrollContainer.scrollHeight
+      }
+    }
   }
 
   useEffect(() => {
     scrollToBottom()
   }, [messages])
 
-  const handleSendMessage = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!input.trim() || isLoading) return
 
-    if (!input.trim()) return
-
-    // Add user message
     const userMessage: Message = {
       id: Date.now().toString(),
-      content: input,
       role: "user",
+      content: input.trim(),
       timestamp: new Date(),
     }
 
-    setMessages((prev) => [...prev, userMessage])
+    const loadingMessage: Message = {
+      id: (Date.now() + 1).toString(),
+      role: "assistant",
+      content: "",
+      timestamp: new Date(),
+      isLoading: true,
+    }
+
+    setMessages((prev) => [...prev, userMessage, loadingMessage])
     setInput("")
     setIsLoading(true)
 
-    // Simulate API delay
-    setTimeout(() => {
-      // Generate a response based on the user's message
-      let responseContent = ""
+    try {
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          messages: [...messages, userMessage].map((msg) => ({
+            role: msg.role,
+            content: msg.content,
+          })),
+        }),
+      })
 
-      if (input.toLowerCase().includes("alert") || input.toLowerCase().includes("threat")) {
-        responseContent =
-          "I've analyzed recent alerts and found 3 potential threats that require investigation. Would you like me to provide details on these alerts?"
-      } else if (input.toLowerCase().includes("log") || input.toLowerCase().includes("analyze")) {
-        responseContent = "I can help analyze logs. Please specify the time range and systems you want me to focus on."
-      } else if (input.toLowerCase().includes("playbook") || input.toLowerCase().includes("procedure")) {
-        responseContent =
-          "I can suggest a playbook for this scenario. The recommended steps include isolation, evidence collection, and root cause analysis. Would you like me to create a detailed playbook?"
-      } else {
-        responseContent =
-          "I understand your query. As your SOC assistant, I can help with threat analysis, log investigation, playbook creation, and security recommendations. Could you provide more details about your specific security concern?"
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
       }
 
+      const data = await response.json()
       const assistantMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        content: responseContent,
+        id: (Date.now() + 2).toString(),
         role: "assistant",
+        content: data.choices?.[0]?.message?.content || "Sorry, I couldn't process your request.",
         timestamp: new Date(),
       }
 
-      setMessages((prev) => [...prev, assistantMessage])
-      setIsLoading(false)
-    }, 1500)
-  }
-
-  const clearChat = () => {
-    setMessages([
-      {
-        id: "1",
-        content: "Hello! I am SOCGPT, your security operations assistant. How can I help you today?",
+      setMessages((prev) => prev.slice(0, -1).concat(assistantMessage))
+    } catch (error) {
+      console.error("Error:", error)
+      const errorMessage: Message = {
+        id: (Date.now() + 2).toString(),
         role: "assistant",
+        content: "Sorry, I encountered an error while processing your request. Please try again.",
         timestamp: new Date(),
-      },
-    ])
+      }
+      setMessages((prev) => prev.slice(0, -1).concat(errorMessage))
+    } finally {
+      setIsLoading(false)
+    }
   }
 
+  const suggestedQuestions = [
+    "Tunjukkan Alert 1 Jam terakhir",
+    "Apa alert Critical hari ini?",
+    "statistik alert dalam kurun waktu 24 jam",
+    "cari tau malware yang related dengan alert di database",
+    "apakah ada alert yang membutuhkan perhatian lebih dalam 24 jam terakhir?",
+    "status keamanan hari ini dong",
+  ]
+
+  const handleSuggestedQuestion = (question: string) => {
+    setInput(question)
+    inputRef.current?.focus()
+  }
+
+  // Render UI (hanya tambahkan tombol clear chat)
   return (
-    <div className="container mx-auto p-6 h-[calc(100vh-2rem)]">
-      <div className="flex flex-col h-full">
-        <div className="flex justify-between items-center mb-4">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">Chat with SOCGPT</h1>
-            <p className="text-muted-foreground">Your AI-powered security operations assistant</p>
+<div className="container mx-auto p-6 max-w-4xl">
+  <div className="flex flex-col h-[calc(100vh-8rem)]">
+    <Card className="flex-1 flex flex-col">
+      <CardHeader className="pb-4">
+        <div className="flex justify-between items-center">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <Bot className="h-6 w-6 text-primary" />
+              <CardTitle>SOC Assistant</CardTitle>
+            </div>
+            <Badge variant="secondary" className="flex items-center gap-1">
+              <Database className="h-3 w-3" />
+              Connected to Alert Database
+            </Badge>
           </div>
-          <Button variant="outline" size="sm" onClick={clearChat}>
+          {/* Tombol Clear Chat dengan background hitam */}
+          <Button 
+            variant="outline"
+            size="sm" 
+            onClick={clearChat}
+            className="bg-red-500 text-white hover:bg-gray-800 hover:text-white dark:bg-gray-900 dark:hover:bg-gray-800"
+          >
             <Trash className="h-4 w-4 mr-2" />
             Clear Chat
           </Button>
         </div>
+        <CardDescription>
+          AI-powered security operations assistant with real-time alert database access
+        </CardDescription>
+      </CardHeader>
 
-        <Card className="flex-1 flex flex-col overflow-hidden">
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2">
-              <Bot className="h-5 w-5 text-primary" />
-              SOCGPT Assistant
-            </CardTitle>
-            <CardDescription>
-              Ask questions about security alerts, logs, or request assistance with incident response
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex-1 overflow-y-auto p-4">
-            <div className="space-y-4">
-              <AnimatePresence>
+          {/* ... (bagian render messages dan form tetap sama persis) ... */}
+          <CardContent className="flex-1 flex flex-col p-0">
+            <ScrollArea ref={scrollAreaRef} className="flex-1 px-6">
+              <div className="space-y-4 pb-4">
                 {messages.map((message) => (
-                  <motion.div
+                  <div
                     key={message.id}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.2 }}
-                    className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
+                    className={cn(
+                      "flex gap-3 max-w-[80%]",
+                      message.role === "user" ? "ml-auto flex-row-reverse" : "mr-auto",
+                    )}
                   >
-                    <div className={`flex gap-3 max-w-[80%] ${message.role === "user" ? "flex-row-reverse" : ""}`}>
-                      <Avatar className="h-8 w-8">
-                        {message.role === "assistant" ? (
-                          <>
-                            <AvatarImage src="/placeholder.svg?height=32&width=32" />
-                            <AvatarFallback>
-                              <Bot className="h-4 w-4" />
-                            </AvatarFallback>
-                          </>
-                        ) : (
-                          <>
-                            <AvatarImage src={user?.avatar || "/placeholder.svg"} />
-                            <AvatarFallback>
-                              <User className="h-4 w-4" />
-                            </AvatarFallback>
-                          </>
-                        )}
-                      </Avatar>
-                      <div
-                        className={`rounded-lg p-3 ${
-                          message.role === "assistant"
-                            ? "bg-secondary text-secondary-foreground"
-                            : "bg-primary text-primary-foreground"
-                        }`}
-                      >
-                        <p className="text-sm">{message.content}</p>
-                        <p className="text-xs opacity-70 mt-1">{message.timestamp.toLocaleTimeString()}</p>
-                      </div>
+                    <div
+                      className={cn(
+                        "flex h-8 w-8 shrink-0 select-none items-center justify-center rounded-full",
+                        message.role === "user"
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-muted text-foreground",
+                      )}
+                    >
+                      {message.role === "user" ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
                     </div>
-                  </motion.div>
-                ))}
-                {isLoading && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="flex justify-start"
-                  >
-                    <div className="flex gap-3 max-w-[80%]">
-                      <Avatar className="h-8 w-8">
-                        <AvatarImage src="/placeholder.svg?height=32&width=32" />
-                        <AvatarFallback>
-                          <Bot className="h-4 w-4" />
-                        </AvatarFallback>
-                      </Avatar>
-                      <div className="rounded-lg p-3 bg-secondary text-secondary-foreground">
+                    <div
+                      className={cn(
+                        "rounded-lg px-4 py-2 text-sm",
+                        message.role === "user"
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-muted text-foreground",
+                      )}
+                    >
+                      {message.isLoading ? (
                         <div className="flex items-center gap-2">
                           <Loader2 className="h-4 w-4 animate-spin" />
-                          <p className="text-sm">SOCGPT is thinking...</p>
+                          <span>Analyzing alerts...</span>
                         </div>
-                      </div>
+                      ) : (
+                        <div className="whitespace-pre-wrap">{message.content}</div>
+                      )}
+                      <div className="text-xs opacity-70 mt-1">{message.timestamp.toLocaleTimeString()}</div>
                     </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-              <div ref={messagesEndRef} />
-            </div>
-          </CardContent>
-          <CardFooter className="border-t p-4">
-            <form onSubmit={handleSendMessage} className="flex w-full gap-2">
-              <Button type="button" size="icon" variant="outline" className="shrink-0">
-                <Paperclip className="h-4 w-4" />
-                <span className="sr-only">Attach file</span>
-              </Button>
-              <Textarea
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder="Type your message..."
-                className="min-h-10 flex-1 resize-none"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault()
-                    handleSendMessage(e)
-                  }
-                }}
-              />
-              <Button type="submit" size="icon" disabled={isLoading || !input.trim()} className="shrink-0">
-                <Send className="h-4 w-4" />
-                <span className="sr-only">Send</span>
-              </Button>
+                  </div>
+                ))}
+              </div>
+            </ScrollArea>
+
+            <Separator />
+
+            {messages.length <= 1 && (
+              <div className="p-4 border-b">
+                <p className="text-sm text-muted-foreground mb-3">Try asking me about:</p>
+                <div className="flex flex-wrap gap-2">
+                  {suggestedQuestions.map((question, index) => (
+                    <Button
+                      key={index}
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleSuggestedQuestion(question)}
+                      className="text-xs"
+                    >
+                      {question}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <form onSubmit={handleSubmit} className="p-4">
+              <div className="flex gap-2">
+                <Input
+                  ref={inputRef}
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  placeholder="tanya apa aja.... bahasa inggris juga bisa"
+                  disabled={isLoading}
+                  className="flex-1"
+                />
+                <Button type="submit" disabled={isLoading || !input.trim()}>
+                  {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground mt-2">
+                ?? Saya bisa mengakses database alert / log secara realtime untuk kebutuhan security insight
+              </p>
             </form>
-          </CardFooter>
+          </CardContent>
         </Card>
       </div>
     </div>

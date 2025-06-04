@@ -45,7 +45,23 @@ export function IntegrationForm({ integration, onClose }: IntegrationFormProps) 
       setDescription(integration.description || "")
       setSource(integration.source)
       setMethod(integration.method)
-      setCredentials(integration.credentials)
+
+      // Konversi kredensial dari berbagai format ke array IntegrationCredential
+      if (Array.isArray(integration.credentials)) {
+        setCredentials(integration.credentials)
+      } else if (integration.credentials && typeof integration.credentials === "object") {
+        const credArray: IntegrationCredential[] = []
+        for (const [key, value] of Object.entries(integration.credentials)) {
+          credArray.push({
+            key,
+            value: value as string,
+            isSecret: key.toLowerCase().includes("token") || key.toLowerCase().includes("secret"),
+          })
+        }
+        setCredentials(credArray)
+      } else {
+        setCredentials([])
+      }
     } else {
       // Default credentials based on method
       if (method === "api") {
@@ -112,14 +128,29 @@ export function IntegrationForm({ integration, onClose }: IntegrationFormProps) 
         }
       }
 
+      // Convert credentials array to object for API
+      const credentialsObject: Record<string, string> = {}
+      credentials.forEach((cred) => {
+        credentialsObject[cred.key] = cred.value
+      })
+
       const integrationData = {
         name,
         type: activeTab,
         source,
         method,
-        credentials,
+        credentials: credentialsObject, // Use object format instead of array
         description,
       }
+
+      console.log("Submitting integration with data:", {
+        name,
+        type: activeTab,
+        source,
+        method,
+        credentialsKeys: Object.keys(credentialsObject),
+        description: description ? "provided" : "not provided",
+      })
 
       if (integration) {
         await updateIntegration(integration.id, integrationData)

@@ -1,0 +1,19 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/sync-alerts",
+      "schedule": "*/5 * * * *"
+    }
+  ],
+  "functions": {
+    "app/api/alerts/sync/route.ts": {
+      "maxDuration": 60
+    },
+    "app/api/alerts/auto-sync/route.ts": {
+      "maxDuration": 120
+    },
+    "app/api/cron/sync-alerts/route.ts": {
+      "maxDuration": 180
+    }
+  }
+}

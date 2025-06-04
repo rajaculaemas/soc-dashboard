@@ -59,6 +59,39 @@ export const useIntegrationStore = create<IntegrationState>((set, get) => ({
       })
     }
   },
+  
+    checkAllIntegrationsStatus: async () => {
+    try {
+      const response = await fetch("/api/integrations/status", {
+        method: "GET",
+        headers: {
+          "Cache-Control": "no-cache, no-store, must-revalidate",
+          Pragma: "no-cache",
+          Expires: "0",
+        },
+      })
+
+      if (!response.ok) {
+        throw new Error(`Failed to check all integrations status: ${response.status}`)
+      }
+
+      const statusData = await response.json()
+
+      set((state) => {
+        const updatedIntegrations = state.integrations.map((integration) => {
+          const status = statusData.find((s) => s.id === integration.id)
+          return status ? { ...integration, status: status.status } : integration
+        })
+
+        return { integrations: updatedIntegrations }
+      })
+    } catch (error) {
+      console.error("Error checking all integrations status:", error)
+      set({
+        error: error instanceof Error ? error.message : "Unknown error",
+      })
+    }
+  },
 
   addIntegration: async (integration) => {
     try {

@@ -1,135 +1,75 @@
 import { type NextRequest, NextResponse } from "next/server"
-import type { AlertStatus } from "@/lib/config/stellar-cyber"
-
-// Impor prisma dengan try-catch untuk menangani error saat build
-let prisma: any
-try {
-  prisma = require("@/lib/prisma").default
-} catch (error) {
-  console.error("Failed to import prisma:", error)
-  // Buat mock prisma jika import gagal
-  prisma = {
-    alert: {
-      count: async () => 0,
-      findMany: async () => [],
-    },
-  }
-}
+import prisma from "@/lib/prisma"
 
 export async function GET(request: NextRequest) {
   try {
-    const searchParams = request.nextUrl.searchParams
-    const minScore = searchParams.get("minScore") ? Number.parseInt(searchParams.get("minScore") as string) : undefined
-    const status = searchParams.get("status") as AlertStatus | undefined
-    const sort = searchParams.get("sort") || "timestamp"
-    const order = (searchParams.get("order") as "asc" | "desc") || "desc"
-    const limit = searchParams.get("limit") ? Number.parseInt(searchParams.get("limit") as string) : 100
-    const page = searchParams.get("page") ? Number.parseInt(searchParams.get("page") as string) : 1
-    const integrationId = searchParams.get("integrationId") || undefined
+    const { searchParams } = new URL(request.url)
+    const from = searchParams.get("from")
+    const status = searchParams.get("status")
+    const severity = searchParams.get("severity")
+    const source = searchParams.get("source")
 
-    // Buat filter
+    // Build where clause based on filters
     const where: any = {}
 
-    if (minScore) {
-      where.score = { gte: minScore }
+    if (from) {
+      where.timestamp = {
+        gte: new Date(from),
+      }
     }
 
-    if (status) {
+    if (status && status !== "all") {
       where.status = status
     }
 
-    if (integrationId) {
-      where.integrationId = integrationId
+    if (severity && severity !== "all") {
+      where.severity = severity
     }
 
-    // Coba ambil data dari database
-    try {
-      // Hitung total alert
-      const totalAlerts = await prisma.alert.count({ where })
+    if (source && source !== "all") {
+      where.source = source
+    }
 
-      // Ambil alert dengan pagination
-      const alerts = await prisma.alert.findMany({
-        where,
-        orderBy: {
-          [sort]: order,
-        },
-        skip: (page - 1) * limit,
-        take: limit,
-        include: {
-          integration: {
-            select: {
-              id: true,
-              name: true,
-              source: true,
-            },
-          },
-        },
-      })
+    console.log("Fetching alerts with filters:", where)
 
-      // Tambahkan header untuk mencegah caching
-      return NextResponse.json(
-        {
-          data: alerts,
-          pagination: {
-            total: totalAlerts,
-            page,
-            limit,
-            pages: Math.ceil(totalAlerts / limit),
-          },
-        },
-        {
-          headers: {
-            "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
-            Pragma: "no-cache",
-            Expires: "0",
-          },
-        },
-      )
-    } catch (dbError) {
-      console.error("Database error in /api/alerts:", dbError)
-
-      // Fallback ke data dummy jika database belum siap
-      const mockAlerts = Array.from({ length: 5 }, (_, i) => ({
-        id: `fallback-alert-${i}`,
-        externalId: `fallback-id-${i}`,
-        index: `fallback-index-${i}`,
-        title: `Fallback Alert ${i}`,
-        description: `This is a fallback alert generated due to an error in the database.`,
-        severity: ["critical", "high", "medium", "low", "info"][Math.floor(Math.random() * 5)],
-        status: ["New", "In Progress", "Ignored", "Closed"][Math.floor(Math.random() * 4)],
-        timestamp: new Date(Date.now() - Math.random() * 86400000 * 7).toISOString(),
-        source: "Fallback Source",
-        score: Math.floor(Math.random() * 100),
-        integrationId: "fallback-integration",
+    const alerts = await prisma.alert.findMany({
+      where,
+      include: {
         integration: {
-          id: "fallback-integration",
-          name: "Fallback Integration",
-          source: "fallback",
+          select: {
+            name: true,
+            source: true,
+          },
         },
-      }))
+      },
+      orderBy: {
+        timestamp: "desc",
+      },
+      take: 1000, // Limit to prevent performance issues
+    })
 
-      return NextResponse.json(
-        {
-          data: mockAlerts,
-          pagination: {
-            total: 5,
-            page: 1,
-            limit: 5,
-            pages: 1,
-          },
-          fallback: true,
-        },
-        {
-          headers: {
-            "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
-            Pragma: "no-cache",
-            Expires: "0",
-          },
-        },
-      )
-    }
+    console.log(`Found ${alerts.length} alerts`)
+
+    return NextResponse.json({
+      alerts: alerts.map((alert) => ({
+        id: alert.id,
+        _id: alert.externalId,
+        index: alert.index,
+        title: alert.title,
+        description: alert.description,
+        severity: alert.severity,
+        status: alert.status,
+        source: alert.source,
+        score: alert.score,
+        timestamp: alert.timestamp.toISOString(),
+        created_at: alert.createdAt.toISOString(),
+        updated_at: alert.updatedAt.toISOString(),
+        metadata: alert.metadata,
+        integration: alert.integration,
+      })),
+    })
   } catch (error) {
-    console.error("Error in /api/alerts:", error)
+    console.error("Error fetching alerts:", error)
     return NextResponse.json({ error: "Failed to fetch alerts" }, { status: 500 })
   }
 }

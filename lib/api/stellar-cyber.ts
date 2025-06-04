@@ -1,16 +1,99 @@
-import fetch from "node-fetch";
-import https from "https";
-import { STELLAR_CYBER_CONFIG, type AlertStatus, type StellarCyberAlert } from "@/lib/config/stellar-cyber"
+import fetch from "node-fetch"
+import https from "https"
+import type { AlertStatus, StellarCyberAlert } from "@/lib/config/stellar-cyber"
 import { urlunparse } from "@/lib/utils/url"
-
+import prisma from "@/lib/prisma"
 
 const httpsAgent = new https.Agent({
-  rejectUnauthorized: false, // ðŸ’¥ Abaikan validasi sertifikat
-});
+  rejectUnauthorized: false,
+})
+
+// Fungsi untuk mendapatkan kredensial dari database
+async function getStellarCyberCredentials(integrationId?: string) {
+  try {
+    // Jika integrationId disediakan, gunakan itu
+    if (integrationId) {
+      const integration = await prisma.integration.findUnique({
+        where: { id: integrationId },
+      })
+
+      if (!integration || integration.source !== "stellar-cyber") {
+        throw new Error("Stellar Cyber integration not found")
+      }
+
+      let credentials: Record<string, any> = {}
+
+      if (Array.isArray(integration.credentials)) {
+        const credentialsArray = integration.credentials as any[]
+        credentialsArray.forEach((cred) => {
+          if (cred && typeof cred === "object" && "key" in cred && "value" in cred) {
+            credentials[cred.key] = cred.value
+          }
+        })
+      } else {
+        credentials = integration.credentials as Record<string, any>
+      }
+
+      return {
+        HOST: credentials.host || credentials.STELLAR_CYBER_HOST || "",
+        USER_ID: credentials.user_id || credentials.STELLAR_CYBER_USER_ID || "",
+        REFRESH_TOKEN: credentials.refresh_token || credentials.STELLAR_CYBER_REFRESH_TOKEN || "",
+        TENANT_ID: credentials.tenant_id || credentials.STELLAR_CYBER_TENANT_ID || "",
+      }
+    }
+
+    // Jika tidak ada integrationId, cari integrasi Stellar Cyber yang aktif
+    const integration = await prisma.integration.findFirst({
+      where: {
+        source: "stellar-cyber",
+        status: "connected",
+      },
+    })
+
+    if (!integration) {
+      // Fallback ke environment variables
+      return {
+        HOST: process.env.STELLAR_CYBER_HOST || "localhost",
+        USER_ID: process.env.STELLAR_CYBER_USER_ID || "demo@example.com",
+        REFRESH_TOKEN: process.env.STELLAR_CYBER_REFRESH_TOKEN || "demo-token",
+        TENANT_ID: process.env.STELLAR_CYBER_TENANT_ID || "demo-tenant",
+      }
+    }
+
+    let credentials: Record<string, any> = {}
+
+    if (Array.isArray(integration.credentials)) {
+      const credentialsArray = integration.credentials as any[]
+      credentialsArray.forEach((cred) => {
+        if (cred && typeof cred === "object" && "key" in cred && "value" in cred) {
+          credentials[cred.key] = cred.value
+        }
+      })
+    } else {
+      credentials = integration.credentials as Record<string, any>
+    }
+
+    return {
+      HOST: credentials.host || credentials.STELLAR_CYBER_HOST || "",
+      USER_ID: credentials.user_id || credentials.STELLAR_CYBER_USER_ID || "",
+      REFRESH_TOKEN: credentials.refresh_token || credentials.STELLAR_CYBER_REFRESH_TOKEN || "",
+      TENANT_ID: credentials.tenant_id || credentials.STELLAR_CYBER_TENANT_ID || "",
+    }
+  } catch (error) {
+    console.error("Error getting Stellar Cyber credentials:", error)
+    // Fallback ke environment variables
+    return {
+      HOST: process.env.STELLAR_CYBER_HOST || "localhost",
+      USER_ID: process.env.STELLAR_CYBER_USER_ID || "demo@example.com",
+      REFRESH_TOKEN: process.env.STELLAR_CYBER_REFRESH_TOKEN || "demo-token",
+      TENANT_ID: process.env.STELLAR_CYBER_TENANT_ID || "demo-tenant",
+    }
+  }
+}
 
 // Fungsi untuk mendapatkan access token
-export async function getAccessToken(): Promise<string> {
-  const { HOST, USER_ID, REFRESH_TOKEN } = STELLAR_CYBER_CONFIG
+export async function getAccessToken(integrationId?: string): Promise<string> {
+  const { HOST, USER_ID, REFRESH_TOKEN } = await getStellarCyberCredentials(integrationId)
 
   console.log("Checking credentials:", {
     HOST: HOST === "localhost" ? "localhost (default)" : "configured",
@@ -68,9 +151,10 @@ export async function getAlerts(params: {
   order?: "asc" | "desc"
   limit?: number
   page?: number
+  integrationId?: string
 }): Promise<StellarCyberAlert[]> {
-  const { HOST, TENANT_ID } = STELLAR_CYBER_CONFIG
-  const { minScore = 0, status, sort = "timestamp", order = "desc", limit = 100, page = 1 } = params
+  const { minScore = 0, status, sort = "timestamp", order = "desc", limit = 100, page = 1, integrationId } = params
+  const { HOST, TENANT_ID } = await getStellarCyberCredentials(integrationId)
 
   if (!HOST || !TENANT_ID) {
     console.warn("Stellar Cyber credentials not properly configured. Using mock data.")
@@ -78,51 +162,48 @@ export async function getAlerts(params: {
   }
 
   try {
-    const token = await getAccessToken()
+    const token = await getAccessToken(integrationId)
     if (!token || token === "dummy-access-token-for-development" || token === "error-token-for-fallback") {
       console.warn("Fallback token used. Returning mock data.")
       return generateMockAlerts()
     }
 
-    // 1. Build query parameters mirroring Python implementation
+    // Build query parameters
     const queryParams: Record<string, string> = {
-      size: limit.toString()
+      size: limit.toString(),
     }
 
-    // 2. Add filters - construct the query step by step
+    // Add filters
     const mustClauses = [`tenantid:${TENANT_ID}`]
-    
+
     if (status) {
       mustClauses.push(`event_status:${status}`)
     }
-    
+
     if (minScore > 0) {
       mustClauses.push(`score:>=${minScore}`)
     }
 
-    // 3. Date range filter (today in UTC+7)
+    // Date range filter (today in UTC+7)
     const now = new Date()
     const tzOffset = 7 * 60 * 60 * 1000 // UTC+7
     const localTime = new Date(now.getTime() + tzOffset)
     const startOfDay = new Date(localTime)
     startOfDay.setHours(0, 0, 0, 0)
-    
+
     mustClauses.push(`timestamp:[${startOfDay.toISOString()} TO ${localTime.toISOString()}]`)
 
-    // 4. Combine all must clauses
-    queryParams.q = mustClauses.join(' AND ')
+    queryParams.q = mustClauses.join(" AND ")
 
-    // 5. Add sorting if specified
     if (sort) {
       queryParams.sort = `${sort}:${order}`
     }
 
-    // 6. Construct final URL
     const url = urlunparse({
       protocol: "https",
       hostname: HOST,
       pathname: "/connect/api/data/aella-ser-*/_search",
-      search: new URLSearchParams(queryParams).toString()
+      search: new URLSearchParams(queryParams).toString(),
     })
 
     const headers = {
@@ -130,9 +211,8 @@ export async function getAlerts(params: {
       "Content-Type": "application/json",
     }
 
-    console.log('Final request URL:', url)
+    console.log("Final request URL:", url)
 
-    // 7. Make GET request without body
     const response = await fetch(url, {
       method: "GET",
       headers,
@@ -154,75 +234,81 @@ export async function getAlerts(params: {
       return []
     }
 
-    // 8. Process response data
-const alerts: StellarCyberAlert[] = data.hits.hits.map((hit: any) => {
-  const source = hit._source || {};
-  const stellar = source.stellar || {};
-  const user_action = source.user_action || {};
-  const dstip_geo = source.dstip_geo || {};
-  const srcip_geo = source.srcip_geo || {};
+    // Process response data dengan field tambahan dari JSON yang diberikan
+    const alerts: StellarCyberAlert[] = data.hits.hits.map((hit: any) => {
+      const source = hit._source || {}
+      const stellar = source.stellar || {}
+      const user_action = source.user_action || {}
+      const xdr_event = source.xdr_event || {}
 
-  // Helper function to handle timestamp conversion
-const convertTimestamp = (ts: any): string => {
-  if (!ts) return "";
-  if (typeof ts === 'string' && ts.includes('T')) return ts;
-  
-  // Gunakan UTC untuk konsistensi antara server dan client
-  const timestamp = typeof ts === 'number' ? ts : parseInt(ts);
-  return new Date(timestamp).toISOString(); // Selalu gunakan ISO string untuk konsistensi
-}
+      // Helper function to handle timestamp conversion
+      const convertTimestamp = (ts: any): string => {
+        if (!ts) return ""
+        if (typeof ts === "string" && ts.includes("T")) return ts
 
-  return {
-    _id: hit._id || stellar.uuid || "",
-    index: hit._index || "",
-    title: source.xdr_event?.display_name || source.event_name || "Unknown Alert",
-    description: source.xdr_event?.description || "",
-    severity: source.severity || "medium",
-    status: source.event_status || stellar.status || "New",
-    created_at: convertTimestamp(source.timestamp),
-    updated_at: convertTimestamp(source.write_time),
-    source: source.msg_origin?.source || "Stellar Cyber",
-    score: source.event_score || source.score || 0,
-    metadata: {
-      srcip: source.srcip,
-      dstip: source.dstip,
-      event_type: source.event_type,
-      event_name: source.event_name,
-      assignee: source.assignee,
-      comments: source.comments,
-      ...source.metadata,
-    },
-    // Field tambahan yang diminta
-    dstip_geo_point: source.dstip_geo_point || "",
-    dstip_host: source.dstip_host || "",
-    dstip_reputation: source.dstip_reputation || "",
-    srcip_reputation: source.srcip_reputation || "",
-    alert_time: convertTimestamp(stellar.alert_time),
-    close_time: convertTimestamp(user_action.last_timestamp),
-    tenant_name: source.tenant_name || "",
-    appid_name: source.appid_name || "",
-    appid_stdport: source.appid_stdport || "",
-    dstport: source.dstport || 0,
-    srcip_username: user_action.last_user || "",
-    // Field yang sudah ada sebelumnya
-    srcip: source.srcip,
-    dstip: source.dstip,
-    event_name: source.event_name,
-    event_type: source.event_type,
-    event_score: source.event_score,
-    assignee: source.assignee,
-  }
-});
+        const timestamp = typeof ts === "number" ? ts : Number.parseInt(ts)
+        return new Date(timestamp).toISOString()
+      }
 
-    console.log(`âœ… Total alerts fetched: ${alerts.length}`)
+      return {
+        _id: hit._id || stellar.uuid || "",
+        index: hit._index || "",
+        title: source.xdr_event?.display_name || source.event_name || "Unknown Alert",
+        description: xdr_event.description || source.xdr_event?.description || "",
+        severity: source.severity || "medium",
+        status: source.event_status || stellar.status || "New",
+        created_at: convertTimestamp(source.timestamp),
+        updated_at: convertTimestamp(source.write_time),
+        source: source.msg_origin?.source || "Stellar Cyber",
+        score: source.event_score || source.score || 0,
+        metadata: {
+          // Basic alert info
+          alert_id: hit._id,
+          alert_time: convertTimestamp(stellar.alert_time),
+          severity: source.severity,
+          event_status: source.event_status,
+          alert_type: source.event_type,
+          closed_time: convertTimestamp(user_action.last_timestamp),
+          assignee: source.assignee,
+          comment: source.comments,
+          tenant_name: source.tenant_name,
+          timestamp: convertTimestamp(source.timestamp),
+
+          // Application info
+          appid_family: source.appid_family,
+          appid_name: source.appid_name,
+          appid_stdport: source.appid_stdport,
+          repeat_count: source.repeat_count || 1,
+
+          // Network info
+          dstip: source.dstip,
+          dstip_reputation: source.dstip_reputation,
+          dstport: source.dstport,
+          srcip: source.srcip,
+          srcip_reputation: source.srcip_reputation,
+          srcip_username: source.srcip_username,
+          srcmac: source.srcmac,
+          srcport: source.srcport,
+
+          // XDR description
+          xdr_desc: xdr_event.description,
+
+          // Additional metadata
+          event_type: source.event_type,
+          event_name: source.event_name,
+          event_score: source.event_score,
+          ...source.metadata,
+        },
+      }
+    })
+
+    console.log(`✅ Total alerts fetched: ${alerts.length}`)
     return alerts
-
   } catch (error) {
     console.error("Error getting alerts:", error)
     return generateMockAlerts()
   }
 }
-
 
 // Fungsi untuk menghasilkan data dummy
 function generateMockAlerts(): StellarCyberAlert[] {
@@ -250,29 +336,27 @@ export async function updateAlertStatus(params: {
   alertId: string
   status: AlertStatus
   comments?: string
+  integrationId?: string
 }): Promise<any> {
-  const { HOST, TENANT_ID } = STELLAR_CYBER_CONFIG
-  const { index, alertId, status, comments = "" } = params
+  const { index, alertId, status, comments = "", integrationId } = params
+  const { HOST, TENANT_ID } = await getStellarCyberCredentials(integrationId)
 
-  // Jika environment variables tidak tersedia, kembalikan respons dummy
   if (!HOST || HOST === "localhost" || !TENANT_ID || TENANT_ID === "demo-tenant") {
     console.warn("Stellar Cyber credentials not properly configured. Using mock response.")
     return { success: true, message: "Status updated (mock)" }
   }
 
   try {
-    const token = await getAccessToken()
+    const token = await getAccessToken(integrationId)
 
-    // Jika token adalah fallback token, kembalikan respons dummy
     if (token === "dummy-access-token-for-development" || token === "error-token-for-fallback") {
       return { success: true, message: "Status updated (mock)" }
     }
 
-    // Berdasarkan data yang diunggah, endpoint yang benar mungkin berbeda
     const url = urlunparse({
       protocol: "https",
       hostname: HOST,
-      pathname: "/connect/api/v1/update_event_status", // Endpoint yang mungkin benar
+      pathname: "/connect/api/v1/update_event_status",
     })
 
     const headers = {
@@ -280,7 +364,6 @@ export async function updateAlertStatus(params: {
       "Content-Type": "application/json",
     }
 
-    // Format payload berdasarkan format yang mungkin diharapkan API
     const payload = {
       tenant_id: TENANT_ID,
       event_id: alertId,

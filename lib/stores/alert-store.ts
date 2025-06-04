@@ -1,146 +1,250 @@
 import { create } from "zustand"
-import type { AlertStatus } from "@/lib/config/stellar-cyber"
+import type { StellarCyberAlert, AlertStatus } from "@/lib/config/stellar-cyber"
 
-interface Alert {
-  id: string
-  externalId?: string
-  index?: string
-  title: string
-  description?: string
-  severity: string
-  status: string
-  source: string
-  timestamp: string
-  score?: number
-  metadata?: any
-  integrationId: string
-  integration?: {
-    id: string
-    name: string
-    source: string
-  }
+interface AlertFilters {
+  timeRange: "1h" | "12h" | "24h" | "7d" | "all"
+  status: AlertStatus | "all"
+  severity: string | "all"
+  source: string | "all"
 }
 
-interface AlertState {
-  alerts: Alert[]
+interface AlertStore {
+  alerts: StellarCyberAlert[]
   loading: boolean
   error: string | null
   activeTab: AlertStatus | "all"
-  fetchAlerts: (params?: { status?: AlertStatus }) => Promise<void>
-  updateAlertStatus: (params: {
-    alertId: string
-    status: AlertStatus
-    comments?: string
-  }) => Promise<void>
-  syncAlerts: (integrationId: string) => Promise<void>
+  filters: AlertFilters
+  autoRefresh: boolean
+  refreshInterval: NodeJS.Timeout | null
+  lastSync: Date | null
+  selectedIntegration: string | null
+  setSelectedIntegration: (id: string | null) => void
+  initializeDefaultIntegration: (integrations: any[]) => void
+
+  // Actions
+  setAlerts: (alerts: StellarCyberAlert[]) => void
+  setLoading: (loading: boolean) => void
+  setError: (error: string | null) => void
   setActiveTab: (tab: AlertStatus | "all") => void
+  setFilters: (filters: Partial<AlertFilters>) => void
+  setAutoRefresh: (enabled: boolean) => void
+
+  // API Actions
+  fetchAlerts: () => Promise<void>
+  syncAlerts: (integrationId: string) => Promise<void>
+  updateAlertStatus: (params: { alertId: string; status: AlertStatus; comments?: string }) => Promise<void>
+  startAutoRefresh: () => void
+  stopAutoRefresh: () => void
+  autoSyncAllIntegrations: () => Promise<any>
+
+  // Computed
+  getFilteredAlerts: () => StellarCyberAlert[]
 }
 
-export const useAlertStore = create<AlertState>((set, get) => ({
+export const useAlertStore = create<AlertStore>((set, get) => ({
   alerts: [],
   loading: false,
   error: null,
   activeTab: "all",
+  filters: {
+    timeRange: "12h",
+    status: "New",
+    severity: "all",
+    source: "all",
+  },
+  autoRefresh: true,
+  refreshInterval: null,
+  lastSync: null,
+  selectedIntegration: null,
 
-  fetchAlerts: async (params = {}) => {
-    set({ loading: true, error: null })
+  setSelectedIntegration: (id) => set({ selectedIntegration: id }),
+
+  initializeDefaultIntegration: (integrations) => {
+    const stellarIntegration = integrations.find(
+      (i) => i.source === "stellar-cyber" && i.status === "connected"
+    )
+    if (stellarIntegration) {
+      set({ selectedIntegration: stellarIntegration.id })
+    }
+  },
+
+  setAlerts: (alerts) => set({ alerts, lastSync: new Date() }),
+  setLoading: (loading) => set({ loading }),
+  setError: (error) => set({ error }),
+  setActiveTab: (activeTab) => set({ activeTab }),
+  setFilters: (newFilters) =>
+    set((state) => ({
+      filters: { ...state.filters, ...newFilters },
+    })),
+  setAutoRefresh: (autoRefresh) => {
+    const { startAutoRefresh, stopAutoRefresh, selectedIntegration } = get()
+
+    set({ autoRefresh })
+    if (autoRefresh && selectedIntegration) {
+      startAutoRefresh()
+    } else {
+      stopAutoRefresh()
+    }
+  },
+
+  fetchAlerts: async () => {
+    const { setLoading, setError, setAlerts, filters } = get()
+
     try {
-      const queryParams = new URLSearchParams()
-      if (params.status && params.status !== "all") {
-        queryParams.append("status", params.status)
+      setLoading(true)
+      setError(null)
+
+      const params = new URLSearchParams()
+
+      if (filters.timeRange !== "all") {
+        const hours = {
+          "1h": 1,
+          "12h": 12,
+          "24h": 24,
+          "7d": 168,
+        }[filters.timeRange]
+
+        const fromTime = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString()
+        params.append("from", fromTime)
       }
 
-      // Tambahkan timestamp untuk mencegah caching
-      queryParams.append("_t", Date.now().toString())
+      if (filters.status !== "all") {
+        params.append("status", filters.status)
+      }
 
-      const response = await fetch(`/api/alerts?${queryParams.toString()}`, {
-        cache: "no-store",
-        headers: {
-          "Cache-Control": "no-cache, no-store, must-revalidate",
-          Pragma: "no-cache",
-          Expires: "0",
-        },
-      })
+      if (filters.severity !== "all") {
+        params.append("severity", filters.severity)
+      }
+
+      const response = await fetch(`/api/alerts?${params.toString()}`)
 
       if (!response.ok) {
-        throw new Error(`Failed to fetch alerts: ${response.status}`)
+        throw new Error(`Failed to fetch alerts: ${response.statusText}`)
       }
 
       const data = await response.json()
-
-      if (!data.data || !Array.isArray(data.data)) {
-        throw new Error("API did not return valid data")
-      }
-
-      set({ alerts: data.data, loading: false })
+      setAlerts(data.alerts || [])
     } catch (error) {
       console.error("Error fetching alerts:", error)
-      set({ error: (error as Error).message, loading: false })
+      setError(error instanceof Error ? error.message : "Failed to fetch alerts")
+    } finally {
+      setLoading(false)
     }
   },
 
-  updateAlertStatus: async ({ alertId, status, comments }) => {
+  syncAlerts: async (integrationId: string) => {
+    const { setLoading, setError, fetchAlerts } = get()
+
+    try {
+      setLoading(true)
+      setError(null)
+
+      const response = await fetch("/api/alerts/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ integrationId }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Failed to sync alerts")
+      }
+
+      const data = await response.json()
+      await fetchAlerts()
+      return data
+    } catch (error) {
+      console.error("Error syncing alerts:", error)
+      setError(error instanceof Error ? error.message : "Failed to sync alerts")
+      throw error
+    } finally {
+      setLoading(false)
+    }
+  },
+
+  updateAlertStatus: async (params) => {
+    const { fetchAlerts } = get()
+
     try {
       const response = await fetch("/api/alerts/update", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          alertId,
-          status,
-          comments,
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(params),
       })
 
       if (!response.ok) {
-        throw new Error(`Failed to update alert status: ${response.status}`)
+        throw new Error("Failed to update alert status")
       }
 
-      // Refresh alerts after update
-      await get().fetchAlerts()
+      await fetchAlerts()
     } catch (error) {
       console.error("Error updating alert status:", error)
-      set({ error: (error as Error).message })
-    }
-  },
-
-  syncAlerts: async (integrationId) => {
-    set({ loading: true, error: null })
-    try {
-      const response = await fetch("/api/alerts/sync", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          integrationId,
-        }),
-      })
-
-      if (!response.ok) {
-        throw new Error(`Failed to sync alerts: ${response.status}`)
-      }
-
-      const result = await response.json()
-
-      // Refresh alerts after sync
-      await get().fetchAlerts()
-
-      return result
-    } catch (error) {
-      console.error("Error syncing alerts:", error)
-      set({ error: (error as Error).message, loading: false })
       throw error
     }
   },
 
-  setActiveTab: (tab) => {
-    set({ activeTab: tab })
-    if (tab !== "all") {
-      get().fetchAlerts({ status: tab as AlertStatus })
-    } else {
-      get().fetchAlerts()
+  autoSyncAllIntegrations: async () => {
+    const { setLoading, setError, fetchAlerts } = get()
+
+    try {
+      setLoading(true)
+      setError(null)
+
+      const response = await fetch("/api/alerts/auto-sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Failed to auto-sync alerts")
+      }
+
+      const result = await response.json()
+      console.log("Auto-sync result:", result)
+
+      await fetchAlerts()
+      return result
+    } catch (error) {
+      console.error("Error in auto-sync:", error)
+      setError(error instanceof Error ? error.message : "Failed to auto-sync alerts")
+      throw error
+    } finally {
+      setLoading(false)
     }
+  },
+
+  startAutoRefresh: () => {
+    const { refreshInterval, fetchAlerts, syncAlerts, selectedIntegration } = get()
+
+    if (refreshInterval) clearInterval(refreshInterval)
+
+    const newInterval = setInterval(async () => {
+      try {
+        await fetchAlerts()
+        if (selectedIntegration) {
+          await syncAlerts(selectedIntegration)
+        }
+      } catch (error) {
+        console.error("Auto-refresh error:", error)
+      }
+    }, 3 * 60 * 1000)
+
+    set({ refreshInterval: newInterval })
+  },
+
+  stopAutoRefresh: () => {
+    const { refreshInterval } = get()
+
+    if (refreshInterval) {
+      clearInterval(refreshInterval)
+      set({ refreshInterval: null })
+    }
+  },
+
+  getFilteredAlerts: () => {
+    const { alerts, activeTab } = get()
+    if (activeTab === "all") return alerts
+    return alerts.filter((alert) => alert.status === activeTab)
   },
 }))
