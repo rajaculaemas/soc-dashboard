@@ -1,8 +1,9 @@
 "use client"
 
+import * as clipboard from 'clipboard-polyfill';
 import { useEffect, useState } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { Bell, Filter, RefreshCw, AlertCircle, Download } from "lucide-react"
+import { Bell, Filter, RefreshCw, AlertCircle, Download, Copy } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -22,21 +23,60 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { SafeDate } from "@/components/ui/safe-date"
+import { Switch } from "@/components/ui/switch"
+import { SyncStatus } from "@/components/alert/sync-status"
 
 export default function AlertPanel() {
-  const { alerts, loading, error, activeTab, fetchAlerts, updateAlertStatus, setActiveTab, syncAlerts } =
-    useAlertStore()
+  const {
+    alerts,
+    loading,
+    error,
+    activeTab,
+    filters,
+    autoRefresh,
+    lastSync,
+    fetchAlerts,
+    updateAlertStatus,
+    setActiveTab,
+    setFilters,
+    setAutoRefresh,
+    syncAlerts,
+    getFilteredAlerts,
+    startAutoRefresh,
+    stopAutoRefresh,
+  } = useAlertStore()
+
   const { integrations, fetchIntegrations } = useIntegrationStore()
   const [refreshing, setRefreshing] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [selectedAlert, setSelectedAlert] = useState<any>(null)
   const [updateStatus, setUpdateStatus] = useState<AlertStatus>("In Progress")
   const [comments, setComments] = useState("")
-  const [selectedIntegration, setSelectedIntegration] = useState<string | null>(null)
+  const [selectedIntegration, setSelectedIntegration] = useState<string | null>(null);
+  const [isClient, setIsClient] = useState(false);
+  const [copiedAlertId, setCopiedAlertId] = useState(false);
+  const [copiedRawData, setCopiedRawData] = useState(false);
+
+  // Set default integration saat komponen mount
+  useEffect(() => {
+    if (integrations.length > 0) {
+      const defaultIntegration = integrations.find(
+        (i) => i.name.toLowerCase().includes("stellar") || i.source === "stellar-cyber" 
+      );
+      if (defaultIntegration) {
+        setSelectedIntegration(defaultIntegration.id);
+      }
+    }
+  }, [integrations]); 
+
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
 
   const loadAlerts = async () => {
     try {
@@ -55,6 +95,7 @@ export default function AlertPanel() {
     try {
       setSyncing(true)
       await syncAlerts(selectedIntegration)
+      // After sync completes, refresh the alerts
       await loadAlerts()
     } catch (error) {
       console.error("Failed to sync alerts:", error)
@@ -63,17 +104,41 @@ export default function AlertPanel() {
     }
   }
 
+  // Auto-sync effect
+  useEffect(() => {
+    let intervalId: NodeJS.Timeout;
+
+    const startAutoSync = () => {
+      // First sync immediately
+      handleSyncAlerts();
+      // Then set up interval for every 3 minutes (180000 ms)
+      intervalId = setInterval(handleSyncAlerts, 180000);
+    };
+
+    if (autoRefresh && selectedIntegration) {
+      startAutoSync();
+    }
+
+    return () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+      }
+    };
+  }, [autoRefresh, selectedIntegration]);
+
   useEffect(() => {
     loadAlerts()
     fetchIntegrations()
 
-    // Set up polling for real-time updates
-    const interval = setInterval(() => {
-      loadAlerts()
-    }, 30000) // Poll every 30 seconds
-
-    return () => clearInterval(interval)
+    return () => {
+      stopAutoRefresh()
+    }
   }, [])
+
+  useEffect(() => {
+    // Reload alerts when filters change
+    loadAlerts()
+  }, [filters])
 
   const handleUpdateStatus = async () => {
     if (!selectedAlert) return
@@ -88,7 +153,42 @@ export default function AlertPanel() {
     setComments("")
   }
 
-  // Fungsi untuk mengubah severity ke string yang konsisten
+  const copyToClipboard = async (text: string, type: "alertId" | "rawData") => {
+    try {
+      await clipboard.writeText(text);
+      if (type === "alertId") {
+        setCopiedAlertId(true);
+        setTimeout(() => setCopiedAlertId(false), 2000);
+      } else {
+        setCopiedRawData(true);
+        setTimeout(() => setCopiedRawData(false), 2000);
+      }
+    } catch (err) {
+      console.error("Gagal menyalin:", err);
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      try {
+        document.execCommand('copy');
+        if (type === "alertId") {
+          setCopiedAlertId(true);
+          setTimeout(() => setCopiedAlertId(false), 2000);
+        } else {
+          setCopiedRawData(true);
+          setTimeout(() => setCopiedRawData(false), 2000);
+        }
+      } catch (err) {
+        console.error("Fallback copy gagal:", err);
+        alert("Gagal menyalin teks. Silakan salin manual.");
+      } finally {
+        document.body.removeChild(textarea);
+      }
+    }
+  };
+
   const normalizeSeverity = (value: string | number): string => {
     const map: Record<string | number, string> = {
       100: "critical",
@@ -101,13 +201,12 @@ export default function AlertPanel() {
       low: "low",
     }
 
-    return map[value] || "medium" // fallback default
+    return map[value] || "medium"
   }
 
-  // Prepare data for the severity chart
   const severityCounts = alerts.reduce(
     (acc, alert) => {
-      const severity = normalizeSeverity(alert.severity || 40) // bisa angka atau string
+      const severity = normalizeSeverity(alert.severity || 40)
       acc[severity] = (acc[severity] || 0) + 1
       return acc
     },
@@ -151,10 +250,12 @@ export default function AlertPanel() {
     }
   }
 
-  const filteredAlerts = activeTab === "all" ? alerts : alerts.filter((alert) => alert.status === activeTab)
-
-  // Filter Stellar Cyber integrations for sync dropdown
+  const filteredAlerts = getFilteredAlerts()
   const stellarIntegrations = integrations.filter((i) => i.source === "stellar-cyber" && i.status === "connected")
+  const truncateAlertId = (id: string = "") => {
+    if (id.length <= 12) return id
+    return id.slice(0, 10) + "..."
+  }
 
   return (
     <div className="container mx-auto p-6 space-y-6">
@@ -162,8 +263,28 @@ export default function AlertPanel() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Live Alert Panel</h1>
           <p className="text-muted-foreground">Monitor and respond to security alerts in real-time</p>
+          {lastSync && (
+            <p className="text-xs text-muted-foreground mt-1">
+              Last sync: <SafeDate date={lastSync.toISOString()} />
+            </p>
+          )}
         </div>
-        <div className="flex items-center gap-2">
+
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Auto-refresh toggle - now controls auto-sync */}
+          <div className="flex items-center space-x-2">
+            <Switch 
+              id="auto-refresh" 
+              checked={autoRefresh} 
+              onCheckedChange={(checked) => {
+                setAutoRefresh(checked)
+              }} 
+            />
+            <Label htmlFor="auto-refresh" className="text-sm">
+              Auto-sync (3m)
+            </Label>
+          </div>
+
           <Button variant="outline" size="sm" onClick={loadAlerts} disabled={refreshing}>
             <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? "animate-spin" : ""}`} />
             Refresh
@@ -171,9 +292,21 @@ export default function AlertPanel() {
 
           {stellarIntegrations.length > 0 && (
             <div className="flex items-center gap-2">
-              <Select value={selectedIntegration || ""} onValueChange={setSelectedIntegration}>
+              <Select
+                value={selectedIntegration || ""}
+                onValueChange={(id) => {
+                  useAlertStore.getState().setSelectedIntegration(id)
+                  setSelectedIntegration(id)
+                }}
+              >
                 <SelectTrigger className="w-[180px]">
-                  <SelectValue placeholder="Select integration" />
+                  <SelectValue 
+                    placeholder={
+                      selectedIntegration 
+                        ? stellarIntegrations.find(i => i.id === selectedIntegration)?.name 
+                        : "Select integration"
+                    } 
+                  />
                 </SelectTrigger>
                 <SelectContent>
                   {stellarIntegrations.map((integration) => (
@@ -181,6 +314,8 @@ export default function AlertPanel() {
                       {integration.name}
                     </SelectItem>
                   ))}
+                  <SelectItem value="log360" disabled>Log360</SelectItem>
+                  <SelectItem value="qradar" disabled>QRadar</SelectItem>
                 </SelectContent>
               </Select>
 
@@ -191,10 +326,73 @@ export default function AlertPanel() {
             </div>
           )}
 
-          <Button variant="outline" size="sm">
-            <Filter className="h-4 w-4 mr-2" />
-            Filter
-          </Button>
+          {/* Filter Popover */}
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="sm">
+                <Filter className="h-4 w-4 mr-2" />
+                Filter
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-80">
+              <div className="grid gap-4">
+                <div className="space-y-2">
+                  <h4 className="font-medium leading-none">Filter Alerts</h4>
+                  <p className="text-sm text-muted-foreground">Customize your alert view</p>
+                </div>
+                <div className="grid gap-2">
+                  <div className="grid grid-cols-3 items-center gap-4">
+                    <Label htmlFor="timeRange">Time Range</Label>
+                    <Select
+                      value={filters.timeRange}
+                      onValueChange={(value) => setFilters({ timeRange: value as any })}
+                    >
+                      <SelectTrigger className="col-span-2">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="1h">Last 1 hour</SelectItem>
+                        <SelectItem value="12h">Last 12 hours</SelectItem>
+                        <SelectItem value="24h">Last 24 hours</SelectItem>
+                        <SelectItem value="7d">Last 7 days</SelectItem>
+                        <SelectItem value="all">All time</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid grid-cols-3 items-center gap-4">
+                    <Label htmlFor="status">Status</Label>
+                    <Select value={filters.status} onValueChange={(value) => setFilters({ status: value as any })}>
+                      <SelectTrigger className="col-span-2">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Status</SelectItem>
+                        <SelectItem value="New">New</SelectItem>
+                        <SelectItem value="In Progress">In Progress</SelectItem>
+                        <SelectItem value="Ignored">Ignored</SelectItem>
+                        <SelectItem value="Closed">Closed</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid grid-cols-3 items-center gap-4">
+                    <Label htmlFor="severity">Severity</Label>
+                    <Select value={filters.severity} onValueChange={(value) => setFilters({ severity: value })}>
+                      <SelectTrigger className="col-span-2">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Severity</SelectItem>
+                        <SelectItem value="critical">Critical</SelectItem>
+                        <SelectItem value="high">High</SelectItem>
+                        <SelectItem value="medium">Medium</SelectItem>
+                        <SelectItem value="low">Low</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </div>
+            </PopoverContent>
+          </Popover>
         </div>
       </div>
 
@@ -215,6 +413,8 @@ export default function AlertPanel() {
           </CardContent>
         </Card>
       )}
+
+      <SyncStatus />
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <Card className="md:col-span-2">
@@ -434,16 +634,193 @@ export default function AlertPanel() {
           )}
         </CardContent>
       </Card>
+
+      {/* Enhanced Alert Details Dialog */}
       {selectedAlert && (
         <Dialog open={true} onOpenChange={() => setSelectedAlert(null)}>
-          <DialogContent>
+          <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>Alert Raw Data</DialogTitle>
-              <DialogDescription>Informasi lengkap dari alert terpilih</DialogDescription>
+              <DialogTitle>Alert Details</DialogTitle>
+              <DialogDescription>Detailed information about the selected alert</DialogDescription>
             </DialogHeader>
-            <div className="max-h-[400px] overflow-y-auto rounded bg-muted text-sm p-4 whitespace-pre-wrap font-mono">
-              {JSON.stringify(selectedAlert, null, 2)}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Basic Information */}
+              <div className="space-y-4">
+                <h4 className="font-semibold text-lg flex items-center gap-2">
+                  Alert ID:
+                  <span className="text-sm text-ellipsis overflow-hidden whitespace-nowrap max-w-[220px] inline-block font-mono">
+                    {truncateAlertId(selectedAlert.metadata?.alert_id || selectedAlert._id || "N/A")}
+                  </span>
+<Button
+  variant="ghost"
+  size="icon"
+  className="p-0"
+  onClick={() => copyToClipboard(selectedAlert.metadata?.alert_id || selectedAlert._id || "", "alertId")}
+  aria-label="Copy Alert ID"
+  disabled={!isClient}
+>
+  <Copy className={`h-4 w-4 ${copiedAlertId ? "text-green-500" : "text-muted-foreground"}`} />
+</Button>
+                </h4>
+                <div className="space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <span className="font-medium">Alert Time:</span>
+                    <span className="text-sm">
+                      <SafeDate date={selectedAlert.metadata?.alert_time || selectedAlert.timestamp} />
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <span className="font-medium">Severity:</span>
+                    <Badge className={severityColor(selectedAlert.severity)}>{selectedAlert.severity}</Badge>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <span className="font-medium">Status:</span>
+                    <Badge className={statusColor(selectedAlert.status)}>{selectedAlert.status}</Badge>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <span className="font-medium">Alert Type:</span>
+                    <span className="text-sm">
+                      {selectedAlert.metadata?.alert_type || selectedAlert.metadata?.event_type || "N/A"}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <span className="font-medium">Tenant:</span>
+                    <span className="text-sm">{selectedAlert.metadata?.tenant_name || "N/A"}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Network Information */}
+              <div className="space-y-4">
+                <h4 className="font-semibold text-lg">Network Information</h4>
+                <div className="space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <span className="font-medium">Source IP:</span>
+                    <span className="text-sm font-mono">{selectedAlert.metadata?.srcip || "N/A"}</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <span className="font-medium">Source Port:</span>
+                    <span className="text-sm">{selectedAlert.metadata?.srcport || "N/A"}</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <span className="font-medium">Source MAC:</span>
+                    <span className="text-sm font-mono">{selectedAlert.metadata?.srcmac || "N/A"}</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <span className="font-medium">Source Reputation:</span>
+                    <span className="text-sm">{selectedAlert.metadata?.srcip_reputation || "N/A"}</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <span className="font-medium">Destination IP:</span>
+                    <span className="text-sm font-mono">{selectedAlert.metadata?.dstip || "N/A"}</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <span className="font-medium">Destination Port:</span>
+                    <span className="text-sm">{selectedAlert.metadata?.dstport || "N/A"}</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <span className="font-medium">Destination Reputation:</span>
+                    <span className="text-sm">{selectedAlert.metadata?.dstip_reputation || "N/A"}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Application Information */}
+              <div className="space-y-4">
+                <h4 className="font-semibold text-lg">Application Information</h4>
+                <div className="space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <span className="font-medium">App Family:</span>
+                    <span className="text-sm">{selectedAlert.metadata?.appid_family || "N/A"}</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <span className="font-medium">App Name:</span>
+                    <span className="text-sm">{selectedAlert.metadata?.appid_name || "N/A"}</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <span className="font-medium">Standard Port:</span>
+                    <span className="text-sm">{selectedAlert.metadata?.appid_stdport || "N/A"}</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <span className="font-medium">Repeat Count:</span>
+                    <span className="text-sm">{selectedAlert.metadata?.repeat_count || "N/A"}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Assignment & Comments */}
+              <div className="space-y-4">
+                <h4 className="font-semibold text-lg">Assignment & Actions</h4>
+                <div className="space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <span className="font-medium">Assignee:</span>
+                    <span className="text-sm">{selectedAlert.metadata?.assignee || "Unassigned"}</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <span className="font-medium">Username:</span>
+                    <span className="text-sm">{selectedAlert.metadata?.srcip_username || "N/A"}</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <span className="font-medium">Closed Time:</span>
+                    <span className="text-sm">
+                      {selectedAlert.metadata?.closed_time ? (
+                        <SafeDate date={selectedAlert.metadata.closed_time} />
+                      ) : (
+                        "N/A"
+                      )}
+                    </span>
+                  </div>
+                  {selectedAlert.metadata?.comments && (
+                    <div className="col-span-2">
+                      <span className="font-medium">Comments:</span>
+                      <div className="mt-1 p-2 bg-muted rounded text-sm">
+                        {Array.isArray(selectedAlert.metadata.comments)
+                          ? selectedAlert.metadata.comments.map((comment: any, idx: number) => (
+                              <div key={idx} className="mb-2 last:mb-0">
+                                <div className="font-medium">{comment.comment_user}</div>
+                                <div className="text-xs text-muted-foreground">
+                                  <SafeDate date={comment.comment_time} />
+                                </div>
+                                <div>{comment.comment}</div>
+                              </div>
+                            ))
+                          : selectedAlert.metadata.comments}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
+
+            {/* XDR Description */}
+            {selectedAlert.metadata?.xdr_desc && (
+              <div className="mt-6">
+                <h4 className="font-semibold text-lg mb-2">XDR Description</h4>
+                <div className="p-4 bg-muted rounded-lg text-sm">{selectedAlert.metadata.xdr_desc}</div>
+              </div>
+            )}
+
+            {/* Raw Data */}
+            <div className="mt-6">
+              <h4 className="font-semibold text-lg mb-2 flex items-center gap-2">
+                Raw Alert Data
+<Button
+  variant="ghost"
+  size="icon"
+  className="p-0"
+  onClick={() => copyToClipboard(JSON.stringify(selectedAlert, null, 2), "rawData")}
+  aria-label="Copy Raw Alert Data"
+  disabled={!isClient}
+>
+  <Copy className={`h-4 w-4 ${copiedRawData ? "text-green-500" : "text-muted-foreground"}`} />
+</Button>
+              </h4>
+              <div className="max-h-[300px] overflow-y-auto rounded bg-muted text-sm p-4 whitespace-pre-wrap font-mono">
+                {JSON.stringify(selectedAlert, null, 2)}
+              </div>
+            </div>
+
             <DialogFooter>
               <Button variant="outline" onClick={() => setSelectedAlert(null)}>
                 Close
@@ -455,3 +832,4 @@ export default function AlertPanel() {
     </div>
   )
 }
+

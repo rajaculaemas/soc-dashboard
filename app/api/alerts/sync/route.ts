@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import prisma from "@/lib/prisma"
-import { fetchAlertsFromStellarCyber } from "@/lib/api/stellar-cyber-client"
+import { getAlerts } from "@/lib/api/stellar-cyber"
 
 export async function POST(request: NextRequest) {
   try {
@@ -8,10 +8,12 @@ export async function POST(request: NextRequest) {
     const { integrationId } = body
 
     if (!integrationId) {
-      return NextResponse.json({ error: "Missing required field: integrationId" }, { status: 400 })
+      return NextResponse.json({ error: "Integration ID is required" }, { status: 400 })
     }
 
-    // Cari integrasi di database
+    console.log(`Starting alert sync for integration: ${integrationId}`)
+
+    // Verify integration exists and is active
     const integration = await prisma.integration.findUnique({
       where: { id: integrationId },
     })
@@ -20,88 +22,108 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Integration not found" }, { status: 404 })
     }
 
-    // Hanya sinkronisasi jika integrasi adalah Stellar Cyber
     if (integration.source !== "stellar-cyber") {
-      return NextResponse.json({ error: "Only Stellar Cyber integrations can be synced" }, { status: 400 })
+      return NextResponse.json({ error: "Only Stellar Cyber integrations are supported" }, { status: 400 })
     }
 
-    // Ekstrak kredensial dari database
-    const credentials = integration.credentials as Record<string, any>
-
-    // Pastikan format kredensial sesuai dengan yang diharapkan oleh fungsi fetchAlertsFromStellarCyber
-    const formattedCredentials = {
-      host: credentials.STELLAR_CYBER_HOST || credentials.host,
-      user_id: credentials.STELLAR_CYBER_USER_ID || credentials.user_id,
-      refresh_token: credentials.STELLAR_CYBER_REFRESH_TOKEN || credentials.refresh_token,
-      tenant_id: credentials.STELLAR_CYBER_TENANT_ID || credentials.tenant_id,
+    if (integration.status !== "connected") {
+      return NextResponse.json({ error: "Integration is not connected" }, { status: 400 })
     }
 
-    // Ambil alert dari Stellar Cyber
-    const stellarAlerts = await fetchAlertsFromStellarCyber(formattedCredentials)
+    // Fetch alerts from Stellar Cyber using the specific integration
+    const stellarAlerts = await getAlerts({
+      limit: 1000, // Increase limit for bulk sync
+      integrationId: integrationId,
+    })
 
-    // Simpan alert ke database
-    const savedAlerts = []
-    for (const alert of stellarAlerts) {
-      // Cek apakah alert sudah ada di database
-      const existingAlert = await prisma.alert.findFirst({
-        where: {
-          externalId: alert._id || alert.stellar_uuid,
-          integrationId,
-        },
-      })
+    console.log(`Fetched ${stellarAlerts.length} alerts from Stellar Cyber`)
 
-      if (existingAlert) {
-        // Update alert yang sudah ada
-        const updatedAlert = await prisma.alert.update({
-          where: { id: existingAlert.id },
-          data: {
-            title: alert.title || alert.event_name || "Unknown Alert",
-            description: alert.description || alert.xdr_event?.description || "",
-            severity: alert.severity || "medium",
-            status: alert.status || alert.event_status || "New",
-            updatedAt: new Date(),
-            score: alert.score || alert.event_score || 0,
-            metadata: alert.metadata || {},
+    let syncedCount = 0
+    let updatedCount = 0
+    let errorCount = 0
+
+    // Process each alert
+    for (const stellarAlert of stellarAlerts) {
+      try {
+        // Check if alert already exists
+        const existingAlert = await prisma.alert.findFirst({
+          where: {
+            externalId: stellarAlert._id,
+            integrationId: integrationId,
           },
         })
-        savedAlerts.push(updatedAlert)
-      } else {
-        // Buat alert baru
-        const newAlert = await prisma.alert.create({
-          data: {
-            externalId: alert._id || alert.stellar_uuid,
-            index: alert.index || "",
-            title: alert.title || alert.event_name || "Unknown Alert",
-            description: alert.description || alert.xdr_event?.description || "",
-            severity: alert.severity || "medium",
-            status: alert.status || alert.event_status || "New",
-            source: alert.source || "Stellar Cyber",
-            timestamp: new Date(alert.created_at || alert.timestamp || Date.now()),
-            score: alert.score || alert.event_score || 0,
-            metadata: alert.metadata || {},
-            integrationId,
-          },
-        })
-        savedAlerts.push(newAlert)
+
+        if (existingAlert) {
+          // Update existing alert
+          await prisma.alert.update({
+            where: { id: existingAlert.id },
+            data: {
+              title: stellarAlert.title,
+              description: stellarAlert.description,
+              severity: String(stellarAlert.severity),
+              status: stellarAlert.status,
+              source: stellarAlert.source,
+              score: stellarAlert.score,
+              timestamp: new Date(stellarAlert.created_at),
+              metadata: stellarAlert.metadata,
+              updatedAt: new Date(),
+            },
+          })
+          updatedCount++
+        } else {
+          // Create new alert
+          await prisma.alert.create({
+            data: {
+              externalId: stellarAlert._id,
+              index: stellarAlert.index,
+              title: stellarAlert.title,
+              description: stellarAlert.description,
+              severity: String(stellarAlert.severity),
+              status: stellarAlert.status,
+              source: stellarAlert.source,
+              score: stellarAlert.score,
+              timestamp: new Date(stellarAlert.created_at),
+              metadata: stellarAlert.metadata,
+              integrationId: integrationId,
+            },
+          })
+          syncedCount++
+        }
+      } catch (alertError) {
+        console.error(`Error processing alert ${stellarAlert._id}:`, alertError)
+        errorCount++
       }
     }
 
-    // Update lastSyncAt di integrasi
+    // Update integration last sync time
     await prisma.integration.update({
       where: { id: integrationId },
       data: {
         lastSyncAt: new Date(),
-        status: "connected",
+        updatedAt: new Date(),
       },
     })
 
+    console.log(`Sync completed: ${syncedCount} new, ${updatedCount} updated, ${errorCount} errors`)
+
     return NextResponse.json({
       success: true,
-      message: `Synced ${savedAlerts.length} alerts from Stellar Cyber`,
-      count: savedAlerts.length,
+      message: "Alerts synced successfully",
+      stats: {
+        total: stellarAlerts.length,
+        synced: syncedCount,
+        updated: updatedCount,
+        errors: errorCount,
+      },
     })
   } catch (error) {
-    console.error("Error in /api/alerts/sync:", error)
-    return NextResponse.json({ error: "Failed to sync alerts" }, { status: 500 })
+    console.error("Error syncing alerts:", error)
+    return NextResponse.json(
+      {
+        error: "Failed to sync alerts",
+        details: error instanceof Error ? error.message : "Unknown error",
+      },
+      { status: 500 },
+    )
   }
 }
