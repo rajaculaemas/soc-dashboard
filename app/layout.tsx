@@ -9,7 +9,10 @@ const inter = Inter({ subsets: ["latin"] })
 export const metadata: Metadata = {
   title: "SOC Dashboard",
   description: "Security Operations Center Dashboard with AI-powered alert analysis",
-}
+    icons: {
+    icon: "/images/punggawa_logo.png", // ? Letakkan di sini
+  },
+};
 
 export default function RootLayout({
   children,

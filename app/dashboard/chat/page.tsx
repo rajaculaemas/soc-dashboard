@@ -236,7 +236,7 @@ export default function ChatPage() {
                       {message.isLoading ? (
                         <div className="flex items-center gap-2">
                           <Loader2 className="h-4 w-4 animate-spin" />
-                          <span>Analyzing alerts...</span>
+                          <span>Thinking...</span>
                         </div>
                       ) : (
                         <div className="whitespace-pre-wrap">{message.content}</div>

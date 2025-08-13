@@ -35,7 +35,7 @@ model Integration {
 
 model Alert {
   id          String   @id @default(cuid())
-  externalId  String?  @map("external_id") // ID dari sistem eksternal (misalnya Stellar Cyber)
+  externalId  String?  @map("external_id") // ID dari sistem eksternal (Stellar Cyber)
   index       String?  // Index dari Stellar Cyber
   title       String
   description String?

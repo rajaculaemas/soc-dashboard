@@ -12,22 +12,33 @@ const AVAILABLE_TOOLS = [
         properties: {
           timeRange: {
             type: "string",
-            enum: ["1h", "12h", "24h", "7d", "30d"],
-            description: "Time range for alerts (default: 1h)",
+            enum: [
+              "15m", "30m",
+              "1h", "2h", "3h", "6h", "12h",
+              "24h",
+              "2d", "3d", "7d", "14d",
+              "30d"
+              ],
+              
+            description: "Time range for alerts (e.g. 15m, 30m, 1h, ..., 30d)",
           },
           status: {
             type: "string",
             enum: ["New", "In Progress", "Ignored", "Closed"],
             description: "Filter by alert status",
           },
-          severity: {
-            type: "string",
-            enum: ["critical", "high", "medium", "low"],
-            description: "Filter by alert severity",
+          minSeverity: {
+            type: "number",
+            description: "Minimum severity",
+          },
+          
+            maxSeverity: {
+            type: "number",
+            description: "Maximum severity",
           },
           limit: {
             type: "number",
-            description: "Maximum number of alerts to return (default: 10)",
+            description: "Maximum number of alerts to return (default: 100)",
           },
         },
       },
@@ -43,7 +54,13 @@ const AVAILABLE_TOOLS = [
         properties: {
           timeRange: {
             type: "string",
-            enum: ["1h", "12h", "24h", "7d", "30d"],
+            enum: [
+              "15m", "30m",
+              "1h", "2h", "3h", "6h", "12h",
+              "24h",
+              "2d", "3d", "7d", "14d",
+              "30d"
+              ],
             description: "Time range for statistics (default: 24h)",
           },
         },
@@ -64,7 +81,13 @@ const AVAILABLE_TOOLS = [
           },
           timeRange: {
             type: "string",
-            enum: ["1h", "12h", "24h", "7d", "30d"],
+            enum: [
+              "15m", "30m",
+              "1h", "2h", "3h", "6h", "12h",
+              "24h",
+              "2d", "3d", "7d", "14d",
+              "30d"
+              ],
             description: "Time range for search (default: 24h)",
           },
           limit: {
@@ -72,6 +95,24 @@ const AVAILABLE_TOOLS = [
             description: "Maximum number of results (default: 20)",
           },
         },
+      },
+    },
+  },
+  
+  {
+    type: "function",
+    function: {
+      name: "check_ip_threat",
+      description: "Check if an IP address is known to be malicious using threat intelligence sources like VirusTotal",
+      parameters: {
+        type: "object",
+        properties: {
+          ip: {
+            type: "string",
+            description: "The IP address to check",
+          },
+        },
+        required: ["ip"],
       },
     },
   },

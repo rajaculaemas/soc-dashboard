@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import prisma from "@/lib/prisma"
+import { checkIpReputation } from "@/lib/threat-intel/virustotal"
 
 export async function POST(req: Request) {
   try {
@@ -13,6 +14,8 @@ export async function POST(req: Request) {
         return await getAlertStats(parameters)
       case "search_alerts":
         return await searchAlerts(parameters)
+      case "check_ip_threat":
+        return await checkIpThreat(parameters);
       default:
         return NextResponse.json({ error: "Unknown tool" }, { status: 400 })
     }
@@ -20,6 +23,29 @@ export async function POST(req: Request) {
     console.error("Error in chat tools:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
+}
+
+async function checkIpThreat(parameters: any) {
+  const { ip } = parameters;
+
+  if (!ip) {
+    return NextResponse.json(
+      { error: "IP address parameter is missing" },
+      { status: 400 }
+    );
+  }
+
+  const result = await checkIpReputation(ip);
+
+  const responseTemplate = result
+    ? `??? Hasil analisis dari layanan threat intelligence terhadap IP \`${ip}\`:\n\n${result}`
+    : `?? Tidak ditemukan informasi signifikan terkait IP \`${ip}\`. Disarankan untuk tetap memantau aktivitas yang berkaitan.`;
+
+  return NextResponse.json({
+    summary: responseTemplate,
+    raw: result,
+    ip,
+  });
 }
 
 async function getAlerts(parameters: any) {
