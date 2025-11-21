@@ -1,9 +1,5 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
-  previewFeatures = []
 }
 
 datasource db {
@@ -11,46 +7,112 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("users")
+}
+
 model Integration {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   name        String
-  type        String   // "alert" atau "log"
-  source      String   // "stellar-cyber", "firewall", dll
-  status      String   @default("disconnected") // "connected", "disconnected", "pending", "error"
-  method      String   // "api", "agent", "webhook", dll
-  description String?
-  icon        String?
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
-  lastSyncAt  DateTime? @map("last_sync_at")
-  
-  // Kredensial disimpan sebagai JSON
-  credentials Json
-  
-  // Relasi dengan Alert
-  alerts      Alert[]
+  source      String    // "stellar_cyber", "siem", etc.
+  status      String    @default("inactive") // "active", "inactive", "error"
+  config      Json      @default("{}")
+  credentials Json?     
+  lastSync    DateTime? @map("last_sync")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  alerts Alert[]
+  cases  Case[]
 
   @@map("integrations")
 }
 
 model Alert {
   id          String   @id @default(cuid())
-  externalId  String?  @map("external_id") // ID dari sistem eksternal (Stellar Cyber)
-  index       String?  // Index dari Stellar Cyber
+  externalId  String   @unique @map("external_id")
   title       String
   description String?
-  severity    String
-  status      String
-  source      String
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
-  timestamp   DateTime
-  score       Int?
-  metadata    Json?
-  
-  // Relasi dengan Integration
-  integrationId String @map("integration_id")
+  severity    String   // "Low", "Medium", "High", "Critical"
+  status      String   @default("Open")
+  timestamp   DateTime @default(now())
+  metadata    Json?    
+
+  integrationId String
   integration   Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  
+  relatedCases CaseAlert[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("alerts")
+}
+
+model Case {
+  id            String   @id @default(cuid()) // ? Auto-generate ID
+  externalId     String?   @unique @map("external_id")
+  acknowledgedAt DateTime? @map("acknowledged")
+  assignee       String?   @map("assignee")
+  assigneeName   String?   @map("assignee_name")
+  description    String?
+  closedAt       DateTime? @map("closed")
+  createdAt      DateTime? @map("created_at")
+  createdBy      String?   @map("created_by")
+  createdByName  String?   @map("created_by_name")
+  custId         String?   @map("cust_id")
+  modifiedAt     DateTime? @map("modified_at")
+  modifiedBy     String?   @map("modified_by")
+  modifiedByName String?   @map("modified_by_name")
+  name           String
+  score          Float?
+  size           Int?
+  status         String
+  severity       String
+  tags           String[]  @default([])
+  ticketId       Int       @map("ticket_id")
+  version        Int?
+  startTimestamp DateTime? @map("start_timestamp")
+  endTimestamp   DateTime? @map("end_timestamp")
+  tenantName     String?   @map("tenant_name")
+  metadata       Json
+
+  integrationId String
+  integration   Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+
+  relatedAlerts CaseAlert[]
+  comments     CaseComment[]
+
+  @@map("cases")
+  @@unique([id])
+}
+
+model CaseAlert {
+  id      String @id @default(cuid())
+  caseId  String @map("case_id")
+  alertId String @map("alert_id")
+
+  case  Case  @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  alert Alert @relation(fields: [alertId], references: [id], onDelete: Cascade)
+
+  @@unique([caseId, alertId])
+  @@map("case_alerts")
+}
+
+model CaseComment {
+  id        String   @id @default(cuid())
+  caseId    String   @map("case_id")
+  content   String
+  author    String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  case Case @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@map("case_comments")
 }

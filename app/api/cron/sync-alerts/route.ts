@@ -1,5 +1,9 @@
 import { type NextRequest, NextResponse } from "next/server"
 
+export const dynamic = 'force-dynamic'
+
+// Rename this file to: app/api/cron/sync-all/route.ts
+
 export async function GET(request: NextRequest) {
   try {
     // Verify the request is from a cron service
@@ -11,7 +15,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    console.log("Cron job: Starting scheduled alert sync")
+    console.log("Cron job: Starting scheduled sync for alerts and cases")
 
     // Get the base URL for internal API calls
     const baseUrl =
@@ -19,27 +23,36 @@ export async function GET(request: NextRequest) {
         ? `https://${process.env.VERCEL_URL}`
         : "http://localhost:3000"
 
-    // Call the auto-sync endpoint
-    const response = await fetch(`${baseUrl}/api/alerts/auto-sync`, {
+    // Sync alerts
+    const alertsResponse = await fetch(`${baseUrl}/api/alerts/auto-sync`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
     })
 
-    const result = await response.json()
+    const alertsResult = await alertsResponse.json()
 
-    if (!response.ok) {
-      throw new Error(result.error || "Auto-sync failed")
-    }
+    // Sync cases
+    const casesResponse = await fetch(`${baseUrl}/api/cases/auto-sync`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    })
 
-    console.log("Cron job: Alert sync completed successfully", result)
+    const casesResult = await casesResponse.json()
+
+    console.log("Cron job: Sync completed successfully", { alertsResult, casesResult })
 
     return NextResponse.json({
       success: true,
       message: "Scheduled sync completed",
       timestamp: new Date().toISOString(),
-      result,
+      results: {
+        alerts: alertsResult,
+        cases: casesResult,
+      },
     })
   } catch (error) {
     console.error("Cron job: Error in scheduled sync:", error)

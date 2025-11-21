@@ -1,0 +1,25 @@
+export const CASE_ASSIGNEES = [
+  "abimantara",
+  "ahafiz",
+  "ambarfitri",
+  "araffly",
+  "ariful",
+  "asap",
+  "azamzami",
+  "bimarizki",
+  "fannisa",
+  "fazzahrah",
+  "ffadhillah",
+  "fnurelia",
+  "gandarizky",
+  "haikalrahman",
+  "hnurjannah",
+  "mrifqi",
+  "mtaufik",
+  "nabdurrahman",
+  "radhitia",
+  "rlazuardo",
+  "shizbullah",
+] as const
+
+export type CaseAssignee = (typeof CASE_ASSIGNEES)[number]

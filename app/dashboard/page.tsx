@@ -1,6 +1,6 @@
 "use client"
 
-import * as clipboard from 'clipboard-polyfill';
+import * as clipboard from "clipboard-polyfill"
 import { useEffect, useState } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { Bell, Filter, RefreshCw, AlertCircle, Download, Copy } from "lucide-react"
@@ -57,33 +57,95 @@ export default function AlertPanel() {
   const [selectedAlert, setSelectedAlert] = useState<any>(null)
   const [updateStatus, setUpdateStatus] = useState<AlertStatus>("In Progress")
   const [comments, setComments] = useState("")
-  const [selectedIntegration, setSelectedIntegration] = useState<string | null>(null);
-  const [isClient, setIsClient] = useState(false);
-  const [copiedAlertId, setCopiedAlertId] = useState(false);
-  const [copiedRawData, setCopiedRawData] = useState(false);
+  const [selectedIntegration, setSelectedIntegration] = useState<string | null>(null)
+  const [isClient, setIsClient] = useState(false)
+  const [copiedAlertId, setCopiedAlertId] = useState(false)
+  const [copiedRawData, setCopiedRawData] = useState(false)
 
   // Set default integration saat komponen mount
   useEffect(() => {
-    if (integrations.length > 0) {
+    // Ensure integrations is an array before filtering
+    if (Array.isArray(integrations) && integrations.length > 0) {
       const defaultIntegration = integrations.find(
-        (i) => i.name.toLowerCase().includes("stellar") || i.source === "stellar-cyber" 
-      );
+        (i) => i.name.toLowerCase().includes("stellar") || i.source === "stellar-cyber",
+      )
       if (defaultIntegration) {
-        setSelectedIntegration(defaultIntegration.id);
+        setSelectedIntegration(defaultIntegration.id)
       }
     }
-  }, [integrations]); 
+  }, [integrations])
 
   useEffect(() => {
-    setIsClient(true);
-  }, []);
+    setIsClient(true)
+  }, [])
 
   const loadAlerts = async () => {
     try {
       setRefreshing(true)
-      await fetchAlerts()
+
+      // Build query parameters with proper timezone handling
+      const params = new URLSearchParams()
+
+      // Set time range based on current filter
+      const now = new Date()
+      let fromDate: Date
+
+      switch (filters.timeRange) {
+        case "1h":
+          fromDate = new Date(now.getTime() - 60 * 60 * 1000)
+          break
+        case "12h":
+          fromDate = new Date(now.getTime() - 12 * 60 * 60 * 1000)
+          break
+        case "24h":
+          fromDate = new Date(now.getTime() - 24 * 60 * 60 * 1000)
+          break
+        case "7d":
+          fromDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+          break
+        default:
+          fromDate = new Date(now.getTime() - 24 * 60 * 60 * 1000) // Default to 24h
+      }
+
+      params.append("from", fromDate.toISOString())
+
+      if (filters.status && filters.status !== "all") {
+        params.append("status", filters.status)
+      }
+
+      if (filters.severity && filters.severity !== "all") {
+        params.append("severity", filters.severity)
+      }
+
+      console.log("Loading alerts with params:", Object.fromEntries(params))
+
+      const response = await fetch(`/api/alerts?${params.toString()}`)
+      const data = await response.json()
+
+      console.log("Alert API response:", data)
+
+      if (data.success) {
+        // Update the alert store directly since we're bypassing the store's fetchAlerts
+        useAlertStore.setState({
+          alerts: data.data || [],
+          loading: false,
+          error: null,
+        })
+      } else {
+        console.error("Failed to fetch alerts:", data.error)
+        useAlertStore.setState({
+          alerts: [],
+          loading: false,
+          error: data.error,
+        })
+      }
     } catch (error) {
       console.error("Failed to fetch alerts:", error)
+      useAlertStore.setState({
+        alerts: [],
+        loading: false,
+        error: "Failed to fetch alerts",
+      })
     } finally {
       setRefreshing(false)
     }
@@ -106,25 +168,25 @@ export default function AlertPanel() {
 
   // Auto-sync effect
   useEffect(() => {
-    let intervalId: NodeJS.Timeout;
+    let intervalId: NodeJS.Timeout
 
     const startAutoSync = () => {
       // First sync immediately
-      handleSyncAlerts();
+      handleSyncAlerts()
       // Then set up interval for every 3 minutes (180000 ms)
-      intervalId = setInterval(handleSyncAlerts, 180000);
-    };
+      intervalId = setInterval(handleSyncAlerts, 180000)
+    }
 
     if (autoRefresh && selectedIntegration) {
-      startAutoSync();
+      startAutoSync()
     }
 
     return () => {
       if (intervalId) {
-        clearInterval(intervalId);
+        clearInterval(intervalId)
       }
-    };
-  }, [autoRefresh, selectedIntegration]);
+    }
+  }, [autoRefresh, selectedIntegration])
 
   useEffect(() => {
     loadAlerts()
@@ -155,46 +217,48 @@ export default function AlertPanel() {
 
   const copyToClipboard = async (text: string, type: "alertId" | "rawData") => {
     try {
-      await clipboard.writeText(text);
+      await clipboard.writeText(text)
       if (type === "alertId") {
-        setCopiedAlertId(true);
-        setTimeout(() => setCopiedAlertId(false), 2000);
+        setCopiedAlertId(true)
+        setTimeout(() => setCopiedAlertId(false), 2000)
       } else {
-        setCopiedRawData(true);
-        setTimeout(() => setCopiedRawData(false), 2000);
+        setCopiedRawData(true)
+        setTimeout(() => setCopiedRawData(false), 2000)
       }
     } catch (err) {
-      console.error("Gagal menyalin:", err);
-      const textarea = document.createElement("textarea");
-      textarea.value = text;
-      textarea.style.position = 'fixed';
-      textarea.style.opacity = '0';
-      document.body.appendChild(textarea);
-      textarea.select();
+      console.error("Gagal menyalin:", err)
+      const textarea = document.createElement("textarea")
+      textarea.value = text
+      textarea.style.position = "fixed"
+      textarea.style.opacity = "0"
+      document.body.appendChild(textarea)
+      textarea.select()
       try {
-        document.execCommand('copy');
+        document.execCommand("copy")
         if (type === "alertId") {
-          setCopiedAlertId(true);
-          setTimeout(() => setCopiedAlertId(false), 2000);
+          setCopiedAlertId(true)
+          setTimeout(() => setCopiedAlertId(false), 2000)
         } else {
-          setCopiedRawData(true);
-          setTimeout(() => setCopiedRawData(false), 2000);
+          setCopiedRawData(true)
+          setTimeout(() => setCopiedRawData(false), 2000)
         }
       } catch (err) {
-        console.error("Fallback copy gagal:", err);
-        alert("Gagal menyalin teks. Silakan salin manual.");
+        console.error("Fallback copy gagal:", err)
+        alert("Gagal menyalin teks. Silakan salin manual.")
       } finally {
-        document.body.removeChild(textarea);
+        document.body.removeChild(textarea)
       }
     }
-  };
+  }
 
   const normalizeSeverity = (value: string | number): string => {
     const map: Record<string | number, string> = {
       100: "critical",
-      80: "high",
-      60: "medium",
-      40: "low",
+      80: "critical",
+      Critical: "critical",
+      High: "high",
+      Medium: "medium",
+      Low: "low",
       critical: "critical",
       high: "high",
       medium: "medium",
@@ -204,9 +268,12 @@ export default function AlertPanel() {
     return map[value] || "medium"
   }
 
-  const severityCounts = alerts.reduce(
+  // Ensure alerts is an array before processing
+  const alertsArray = Array.isArray(alerts) ? alerts : []
+
+  const severityCounts = alertsArray.reduce(
     (acc, alert) => {
-      const severity = normalizeSeverity(alert.severity || 40)
+      const severity = normalizeSeverity(alert.severity || "medium")
       acc[severity] = (acc[severity] || 0) + 1
       return acc
     },
@@ -219,16 +286,12 @@ export default function AlertPanel() {
     const sev = String(severity).toLowerCase()
     switch (sev) {
       case "critical":
-      case "50":
         return "bg-red-500"
       case "high":
-      case "45":
         return "bg-orange-500"
       case "medium":
-      case "40":
         return "bg-yellow-500"
       case "low":
-      case "30":
         return "bg-blue-500"
       default:
         return "bg-gray-500"
@@ -250,9 +313,18 @@ export default function AlertPanel() {
     }
   }
 
-  const filteredAlerts = getFilteredAlerts()
-  const stellarIntegrations = integrations.filter((i) => i.source === "stellar-cyber" && i.status === "connected")
-  const truncateAlertId = (id: string = "") => {
+  // Filter alerts based on active tab
+  const filteredAlerts = alertsArray.filter((alert) => {
+    if (activeTab === "all") return true
+    return alert.status === activeTab
+  })
+
+  // Ensure integrations is an array before filtering
+  const stellarIntegrations = Array.isArray(integrations)
+    ? integrations.filter((i) => i.source === "stellar-cyber" && i.status === "connected")
+    : []
+
+  const truncateAlertId = (id = "") => {
     if (id.length <= 12) return id
     return id.slice(0, 10) + "..."
   }
@@ -273,12 +345,12 @@ export default function AlertPanel() {
         <div className="flex items-center gap-2 flex-wrap">
           {/* Auto-refresh toggle - now controls auto-sync */}
           <div className="flex items-center space-x-2">
-            <Switch 
-              id="auto-refresh" 
-              checked={autoRefresh} 
+            <Switch
+              id="auto-refresh"
+              checked={autoRefresh}
               onCheckedChange={(checked) => {
                 setAutoRefresh(checked)
-              }} 
+              }}
             />
             <Label htmlFor="auto-refresh" className="text-sm">
               Auto-sync (3m)
@@ -300,12 +372,12 @@ export default function AlertPanel() {
                 }}
               >
                 <SelectTrigger className="w-[180px]">
-                  <SelectValue 
+                  <SelectValue
                     placeholder={
-                      selectedIntegration 
-                        ? stellarIntegrations.find(i => i.id === selectedIntegration)?.name 
+                      selectedIntegration
+                        ? stellarIntegrations.find((i) => i.id === selectedIntegration)?.name
                         : "Select integration"
-                    } 
+                    }
                   />
                 </SelectTrigger>
                 <SelectContent>
@@ -314,8 +386,12 @@ export default function AlertPanel() {
                       {integration.name}
                     </SelectItem>
                   ))}
-                  <SelectItem value="log360" disabled>Log360</SelectItem>
-                  <SelectItem value="qradar" disabled>QRadar</SelectItem>
+                  <SelectItem value="log360" disabled>
+                    Log360
+                  </SelectItem>
+                  <SelectItem value="qradar" disabled>
+                    QRadar
+                  </SelectItem>
                 </SelectContent>
               </Select>
 
@@ -382,10 +458,10 @@ export default function AlertPanel() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="all">All Severity</SelectItem>
-                        <SelectItem value="critical">Critical</SelectItem>
-                        <SelectItem value="high">High</SelectItem>
-                        <SelectItem value="medium">Medium</SelectItem>
-                        <SelectItem value="low">Low</SelectItem>
+                        <SelectItem value="Critical">Critical</SelectItem>
+                        <SelectItem value="High">High</SelectItem>
+                        <SelectItem value="Medium">Medium</SelectItem>
+                        <SelectItem value="Low">Low</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -469,31 +545,31 @@ export default function AlertPanel() {
                 <div className="flex justify-between items-center">
                   <span className="font-medium">Total Alerts</span>
                   <Badge variant="outline" className="text-lg">
-                    {alerts.length}
+                    {alertsArray.length}
                   </Badge>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="font-medium">New</span>
                   <Badge variant="outline" className="bg-red-500/10 text-red-500">
-                    {alerts.filter((a) => a.status === "New").length}
+                    {alertsArray.filter((a) => a.status === "New").length}
                   </Badge>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="font-medium">In Progress</span>
                   <Badge variant="outline" className="bg-yellow-500/10 text-yellow-500">
-                    {alerts.filter((a) => a.status === "In Progress").length}
+                    {alertsArray.filter((a) => a.status === "In Progress").length}
                   </Badge>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="font-medium">Ignored</span>
                   <Badge variant="outline" className="bg-gray-500/10 text-gray-500">
-                    {alerts.filter((a) => a.status === "Ignored").length}
+                    {alertsArray.filter((a) => a.status === "Ignored").length}
                   </Badge>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="font-medium">Closed</span>
                   <Badge variant="outline" className="bg-green-500/10 text-green-500">
-                    {alerts.filter((a) => a.status === "Closed").length}
+                    {alertsArray.filter((a) => a.status === "Closed").length}
                   </Badge>
                 </div>
               </div>
@@ -534,6 +610,11 @@ export default function AlertPanel() {
                     <Bell className="h-12 w-12 text-muted-foreground/50 mb-4" />
                     <h3 className="text-lg font-medium">No alerts found</h3>
                     <p className="text-muted-foreground">There are no alerts matching your current filter.</p>
+                    <p className="text-sm text-muted-foreground mt-2">
+                      Current filters: Time Range: {filters.timeRange}, Status: {filters.status}, Severity:{" "}
+                      {filters.severity}
+                    </p>
+                    <p className="text-sm text-muted-foreground">Total alerts in database: {alertsArray.length}</p>
                   </div>
                 ) : (
                   filteredAlerts.map((alert) => (
@@ -558,13 +639,15 @@ export default function AlertPanel() {
                             {alert.status}
                           </Badge>
                           <span className="text-xs text-muted-foreground">
-                            <SafeDate date={alert.timestamp} />
+                            <SafeDate date={alert.created_at || alert.timestamp} />
                           </span>
                         </div>
                       </div>
                       <div className="mt-2 flex items-center justify-between">
                         <div className="flex flex-col">
-                          <span className="text-xs text-muted-foreground">Source: {alert.source}</span>
+                          <span className="text-xs text-muted-foreground">
+                            Source: {alert.metadata?.source || alert.integration_source || "Unknown"}
+                          </span>
                           {alert.metadata?.srcip && alert.metadata?.dstip && (
                             <span className="text-xs text-muted-foreground">
                               {alert.metadata.srcip} → {alert.metadata.dstip}
@@ -650,24 +733,28 @@ export default function AlertPanel() {
                 <h4 className="font-semibold text-lg flex items-center gap-2">
                   Alert ID:
                   <span className="text-sm text-ellipsis overflow-hidden whitespace-nowrap max-w-[220px] inline-block font-mono">
-                    {truncateAlertId(selectedAlert.metadata?.alert_id || selectedAlert._id || "N/A")}
+                    {truncateAlertId(selectedAlert.metadata?.alert_id || selectedAlert.external_id || "N/A")}
                   </span>
-<Button
-  variant="ghost"
-  size="icon"
-  className="p-0"
-  onClick={() => copyToClipboard(selectedAlert.metadata?.alert_id || selectedAlert._id || "", "alertId")}
-  aria-label="Copy Alert ID"
-  disabled={!isClient}
->
-  <Copy className={`h-4 w-4 ${copiedAlertId ? "text-green-500" : "text-muted-foreground"}`} />
-</Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="p-0"
+                    onClick={() =>
+                      copyToClipboard(selectedAlert.metadata?.alert_id || selectedAlert.external_id || "", "alertId")
+                    }
+                    aria-label="Copy Alert ID"
+                    disabled={!isClient}
+                  >
+                    <Copy className={`h-4 w-4 ${copiedAlertId ? "text-green-500" : "text-muted-foreground"}`} />
+                  </Button>
                 </h4>
                 <div className="space-y-2">
                   <div className="grid grid-cols-2 gap-2">
                     <span className="font-medium">Alert Time:</span>
                     <span className="text-sm">
-                      <SafeDate date={selectedAlert.metadata?.alert_time || selectedAlert.timestamp} />
+                      <SafeDate
+                        date={selectedAlert.metadata?.alert_time || selectedAlert.timestamp || selectedAlert.created_at}
+                      />
                     </span>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
@@ -685,8 +772,10 @@ export default function AlertPanel() {
                     </span>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
-                    <span className="font-medium">Tenant:</span>
-                    <span className="text-sm">{selectedAlert.metadata?.tenant_name || "N/A"}</span>
+                    <span className="font-medium">Source:</span>
+                    <span className="text-sm">
+                      {selectedAlert.metadata?.source || selectedAlert.integration_source || "N/A"}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -771,21 +860,21 @@ export default function AlertPanel() {
                       )}
                     </span>
                   </div>
-                  {selectedAlert.metadata?.comments && (
+                  {selectedAlert.metadata?.comment && (
                     <div className="col-span-2">
                       <span className="font-medium">Comments:</span>
                       <div className="mt-1 p-2 bg-muted rounded text-sm">
-                        {Array.isArray(selectedAlert.metadata.comments)
-                          ? selectedAlert.metadata.comments.map((comment: any, idx: number) => (
+                        {Array.isArray(selectedAlert.metadata.comment)
+                          ? selectedAlert.metadata.comment.map((comment: any, idx: number) => (
                               <div key={idx} className="mb-2 last:mb-0">
                                 <div className="font-medium">{comment.comment_user}</div>
                                 <div className="text-xs text-muted-foreground">
-                                  <SafeDate date={comment.comment_time} />
+                                  <SafeDate date={new Date(comment.comment_time)} />
                                 </div>
                                 <div>{comment.comment}</div>
                               </div>
                             ))
-                          : selectedAlert.metadata.comments}
+                          : selectedAlert.metadata.comment}
                       </div>
                     </div>
                   )}
@@ -805,16 +894,16 @@ export default function AlertPanel() {
             <div className="mt-6">
               <h4 className="font-semibold text-lg mb-2 flex items-center gap-2">
                 Raw Alert Data
-<Button
-  variant="ghost"
-  size="icon"
-  className="p-0"
-  onClick={() => copyToClipboard(JSON.stringify(selectedAlert, null, 2), "rawData")}
-  aria-label="Copy Raw Alert Data"
-  disabled={!isClient}
->
-  <Copy className={`h-4 w-4 ${copiedRawData ? "text-green-500" : "text-muted-foreground"}`} />
-</Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="p-0"
+                  onClick={() => copyToClipboard(JSON.stringify(selectedAlert, null, 2), "rawData")}
+                  aria-label="Copy Raw Alert Data"
+                  disabled={!isClient}
+                >
+                  <Copy className={`h-4 w-4 ${copiedRawData ? "text-green-500" : "text-muted-foreground"}`} />
+                </Button>
               </h4>
               <div className="max-h-[300px] overflow-y-auto rounded bg-muted text-sm p-4 whitespace-pre-wrap font-mono">
                 {JSON.stringify(selectedAlert, null, 2)}
@@ -832,4 +921,3 @@ export default function AlertPanel() {
     </div>
   )
 }
-

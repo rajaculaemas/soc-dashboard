@@ -37,3 +37,6 @@ export async function checkIpReputation(ioc: string): Promise<string> {
     return `Gagal mengakses VirusTotal untuk ${ioc}: ${err.message}`;
   }
 }
+
+// Backwards-compatible alias used across the codebase
+export const checkWithVirusTotal = checkIpReputation;

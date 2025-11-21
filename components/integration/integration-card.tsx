@@ -69,11 +69,11 @@ export function IntegrationCard({ integration, onEdit }: IntegrationCardProps) {
     }
   }
 
-const handleSync = async () => {
-  setIsSyncing(true)
-  setSyncResult(null)
-  console.log(`Syncing alerts for integration ${integration.id} (${integration.name})`)
-  try {
+  const handleSync = async () => {
+    setIsSyncing(true)
+    setSyncResult(null)
+    console.log(`Syncing alerts for integration ${integration.id} (${integration.name})`)
+    try {
       const result = await syncAlerts(integration.id)
       console.log("Sync result:", result)
 
@@ -82,27 +82,27 @@ const handleSync = async () => {
         message: result?.message || "Sync success",
         count: result?.stats?.synced || 0,
       })
-  } catch (error) {
-    console.error("Sync error:", error)
+    } catch (error) {
+      console.error("Sync error:", error)
 
-    let message = "Gagal melakukan sync alert"
+      let message = "Gagal melakukan sync alert"
 
-    if (error instanceof Error) {
-      message = error.message
-    } else if (typeof error === "object" && error !== null && "message" in error) {
-      message = String((error as any).message)
-    } else if (typeof error === "string") {
-      message = error
+      if (error instanceof Error) {
+        message = error.message
+      } else if (typeof error === "object" && error !== null && "message" in error) {
+        message = String((error as any).message)
+      } else if (typeof error === "string") {
+        message = error
+      }
+
+      setSyncResult({
+        success: false,
+        message,
+      })
+    } finally {
+      setIsSyncing(false)
     }
-
-    setSyncResult({
-      success: false,
-      message,
-    })
-  } finally {
-    setIsSyncing(false)
   }
-}
 
   const getStatusIcon = () => {
     switch (integration.status) {
@@ -159,6 +159,9 @@ const handleSync = async () => {
         return "bg-gray-500/10 text-gray-500"
     }
   }
+
+  // Safe method access with fallback
+  const safeMethod = integration.method || "api"
 
   return (
     <motion.div
@@ -248,11 +251,11 @@ const handleSync = async () => {
                 {getStatusText()}
               </span>
             </Badge>
-            <Badge variant="outline">{integration.method.toUpperCase()}</Badge>
+            <Badge variant="outline">{safeMethod.toUpperCase()}</Badge>
           </div>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-muted-foreground">{integration.description}</p>
+          <p className="text-sm text-muted-foreground">{integration.description || "No description available"}</p>
           {integration.lastSyncAt && (
             <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1">
               <Clock className="h-3 w-3" />

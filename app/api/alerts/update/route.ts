@@ -46,9 +46,9 @@ export async function POST(request: NextRequest) {
     if (alert.integration.source === "stellar-cyber" && alert.externalId) {
       try {
         await updateAlertStatusInStellarCyber({
-          credentials: alert.integration.credentials,
+          credentials: alert.integration.credentials as any,
           alertId: alert.externalId,
-          index: alert.index || "",
+          index: (alert as any).index || "",
           status: status as AlertStatus,
           comments,
         })

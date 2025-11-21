@@ -184,14 +184,13 @@ export async function getAlerts(params: {
       mustClauses.push(`score:>=${minScore}`)
     }
 
-    // Date range filter (today in UTC+7)
+    // Date range filter (last 7 days in UTC+7)
     const now = new Date()
     const tzOffset = 7 * 60 * 60 * 1000 // UTC+7
     const localTime = new Date(now.getTime() + tzOffset)
-    const startOfDay = new Date(localTime)
-    startOfDay.setHours(0, 0, 0, 0)
+    const startDate = new Date(localTime.getTime() - 7 * 24 * 60 * 60 * 1000) // 7 days ago
 
-    mustClauses.push(`timestamp:[${startOfDay.toISOString()} TO ${localTime.toISOString()}]`)
+    mustClauses.push(`timestamp:[${startDate.toISOString()} TO ${localTime.toISOString()}]`)
 
     queryParams.q = mustClauses.join(" AND ")
 
@@ -259,6 +258,7 @@ export async function getAlerts(params: {
         status: source.event_status || stellar.status || "New",
         created_at: convertTimestamp(source.timestamp),
         updated_at: convertTimestamp(source.write_time),
+        timestamp: convertTimestamp(source.timestamp),
         source: source.msg_origin?.source || "Stellar Cyber",
         score: source.event_score || source.score || 0,
         metadata: {
@@ -321,6 +321,7 @@ function generateMockAlerts(): StellarCyberAlert[] {
     status: ["New", "In Progress", "Ignored", "Closed"][Math.floor(Math.random() * 4)] as AlertStatus,
     created_at: new Date(Date.now() - Math.random() * 86400000 * 7).toISOString(),
     updated_at: new Date(Date.now() - Math.random() * 86400000 * 3).toISOString(),
+    timestamp: new Date(Date.now() - Math.random() * 86400000 * 7).toISOString(),
     source: "Mock Source",
     score: Math.floor(Math.random() * 100),
     metadata: {

@@ -3,193 +3,149 @@ import type { Integration } from "@/lib/types/integration"
 
 interface IntegrationState {
   integrations: Integration[]
-  loading: boolean
+  isLoading: boolean
   error: string | null
   fetchIntegrations: () => Promise<void>
-  addIntegration: (integration: Omit<Integration, "id">) => Promise<Integration | null>
-  updateIntegration: (id: string, integration: Partial<Integration>) => Promise<Integration | null>
-  deleteIntegration: (id: string) => Promise<boolean>
-  testIntegration: (integration: Integration) => Promise<{ success: boolean; message: string }>
+  addIntegration: (integration: Omit<Integration, "id" | "createdAt" | "updatedAt">) => Promise<void>
+  updateIntegration: (id: string, updates: Partial<Integration>) => Promise<void>
+  deleteIntegration: (id: string) => Promise<void>
+  testIntegration: (id: string) => Promise<any>
 }
 
 export const useIntegrationStore = create<IntegrationState>((set, get) => ({
   integrations: [],
-  loading: false,
+  isLoading: false,
   error: null,
 
   fetchIntegrations: async () => {
-    set({ loading: true, error: null })
+    set({ isLoading: true, error: null })
     try {
-      // Tambahkan timestamp untuk mencegah caching
-      const timestamp = new Date().getTime()
-      const response = await fetch(`/api/integrations?_t=${timestamp}`, {
-        method: "GET",
-        headers: {
-          "Cache-Control": "no-cache, no-store, must-revalidate",
-          Pragma: "no-cache",
-          Expires: "0",
-        },
-      })
+      const response = await fetch("/api/integrations")
+      const result = await response.json()
 
-      if (!response.ok) {
-        // Jika error 405, coba gunakan dummy data untuk development
-        if (response.status === 405) {
-          console.warn("Method not allowed, using dummy data for development")
-          set({
-            integrations: [],
-            loading: false,
-          })
-          return
-        }
-        throw new Error(`Failed to fetch integrations: ${response.status}`)
+      if (result.success) {
+        // Ensure we always have an array
+        const integrations = Array.isArray(result.data) ? result.data : []
+        set({ integrations, isLoading: false })
+      } else {
+        set({ integrations: [], error: result.error || "Failed to fetch integrations", isLoading: false })
       }
-
-      const data = await response.json()
-      set({
-        integrations: Array.isArray(data) ? data : [],
-        loading: false,
-      })
     } catch (error) {
       console.error("Error fetching integrations:", error)
       set({
-        error: error instanceof Error ? error.message : "Unknown error",
-        loading: false,
-        // Gunakan array kosong jika terjadi error
         integrations: [],
-      })
-    }
-  },
-  
-    checkAllIntegrationsStatus: async () => {
-    try {
-      const response = await fetch("/api/integrations/status", {
-        method: "GET",
-        headers: {
-          "Cache-Control": "no-cache, no-store, must-revalidate",
-          Pragma: "no-cache",
-          Expires: "0",
-        },
-      })
-
-      if (!response.ok) {
-        throw new Error(`Failed to check all integrations status: ${response.status}`)
-      }
-
-      const statusData = await response.json()
-
-      set((state) => {
-        const updatedIntegrations = state.integrations.map((integration) => {
-          const status = statusData.find((s) => s.id === integration.id)
-          return status ? { ...integration, status: status.status } : integration
-        })
-
-        return { integrations: updatedIntegrations }
-      })
-    } catch (error) {
-      console.error("Error checking all integrations status:", error)
-      set({
-        error: error instanceof Error ? error.message : "Unknown error",
+        error: error instanceof Error ? error.message : "Failed to fetch integrations",
+        isLoading: false,
       })
     }
   },
 
-  addIntegration: async (integration) => {
+  addIntegration: async (integrationData) => {
+    set({ isLoading: true, error: null })
     try {
       const response = await fetch("/api/integrations", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(integration),
+        body: JSON.stringify(integrationData),
       })
 
-      if (!response.ok) {
-        throw new Error(`Failed to add integration: ${response.status}`)
-      }
+      const result = await response.json()
 
-      const newIntegration = await response.json()
-      set((state) => ({
-        integrations: [...state.integrations, newIntegration],
-      }))
-      return newIntegration
+      if (result.success) {
+        const currentIntegrations = get().integrations || []
+        set({
+          integrations: [...currentIntegrations, result.data],
+          isLoading: false,
+        })
+      } else {
+        set({ error: result.error || "Failed to add integration", isLoading: false })
+        throw new Error(result.error || "Failed to add integration")
+      }
     } catch (error) {
       console.error("Error adding integration:", error)
-      set({
-        error: error instanceof Error ? error.message : "Unknown error",
-      })
-      return null
+      const errorMessage = error instanceof Error ? error.message : "Failed to add integration"
+      set({ error: errorMessage, isLoading: false })
+      throw error
     }
   },
 
-  updateIntegration: async (id, integration) => {
+  updateIntegration: async (id, updates) => {
+    set({ isLoading: true, error: null })
     try {
       const response = await fetch(`/api/integrations/${id}`, {
-        method: "PUT",
+        method: "PATCH",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(integration),
+        body: JSON.stringify(updates),
       })
 
-      if (!response.ok) {
-        throw new Error(`Failed to update integration: ${response.status}`)
-      }
+      const result = await response.json()
 
-      const updatedIntegration = await response.json()
-      set((state) => ({
-        integrations: state.integrations.map((i) => (i.id === id ? { ...i, ...updatedIntegration } : i)),
-      }))
-      return updatedIntegration
+      if (result.success) {
+        const currentIntegrations = get().integrations || []
+        set({
+          integrations: currentIntegrations.map((integration) =>
+            integration.id === id ? { ...integration, ...result.data } : integration,
+          ),
+          isLoading: false,
+        })
+      } else {
+        set({ error: result.error || "Failed to update integration", isLoading: false })
+        throw new Error(result.error || "Failed to update integration")
+      }
     } catch (error) {
       console.error("Error updating integration:", error)
-      set({
-        error: error instanceof Error ? error.message : "Unknown error",
-      })
-      return null
+      const errorMessage = error instanceof Error ? error.message : "Failed to update integration"
+      set({ error: errorMessage, isLoading: false })
+      throw error
     }
   },
 
   deleteIntegration: async (id) => {
+    set({ isLoading: true, error: null })
     try {
       const response = await fetch(`/api/integrations/${id}`, {
         method: "DELETE",
       })
 
-      if (!response.ok) {
-        throw new Error(`Failed to delete integration: ${response.status}`)
-      }
+      const result = await response.json()
 
-      set((state) => ({
-        integrations: state.integrations.filter((i) => i.id !== id),
-      }))
-      return true
+      if (result.success) {
+        const currentIntegrations = get().integrations || []
+        set({
+          integrations: currentIntegrations.filter((integration) => integration.id !== id),
+          isLoading: false,
+        })
+      } else {
+        set({ error: result.error || "Failed to delete integration", isLoading: false })
+        throw new Error(result.error || "Failed to delete integration")
+      }
     } catch (error) {
       console.error("Error deleting integration:", error)
-      set({
-        error: error instanceof Error ? error.message : "Unknown error",
-      })
-      return false
+      const errorMessage = error instanceof Error ? error.message : "Failed to delete integration"
+      set({ error: errorMessage, isLoading: false })
+      throw error
     }
   },
 
-  testIntegration: async (integration) => {
+  testIntegration: async (id) => {
     try {
-      const response = await fetch("/api/integrations/test", {
+      const response = await fetch(`/api/integrations/test`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(integration),
+        body: JSON.stringify({ integrationId: id }),
       })
 
       const result = await response.json()
       return result
     } catch (error) {
       console.error("Error testing integration:", error)
-      return {
-        success: false,
-        message: error instanceof Error ? error.message : "Unknown error",
-      }
+      throw error
     }
   },
 }))

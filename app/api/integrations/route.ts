@@ -1,106 +1,83 @@
 import { type NextRequest, NextResponse } from "next/server"
+import { prisma } from "@/lib/prisma"
 
-// Impor prisma dengan try-catch untuk menangani error saat build
-let prisma: any
-try {
-  prisma = require("@/lib/prisma").default
-} catch (error) {
-  console.error("Failed to import prisma:", error)
-  // Buat mock prisma jika import gagal
-  prisma = {
-    integration: {
-      findMany: async () => [],
-      create: async (data: any) => data.data,
-    },
-  }
-}
-
-export async function GET(request: NextRequest) {
-  console.log("GET /api/integrations")
+export async function GET() {
   try {
-    // Coba ambil data dari database
-    try {
-      const integrations = await prisma.integration.findMany({
-        orderBy: {
-          updatedAt: "desc",
-        },
-      })
+    console.log("Fetching integrations...")
 
-      return NextResponse.json(integrations)
-    } catch (dbError) {
-      console.error("Database error in GET /api/integrations:", dbError)
+    const integrations = await prisma.integration.findMany({
+      orderBy: {
+        createdAt: "desc",
+      },
+    })
 
-      // Fallback ke data dummy jika database belum siap
-      const mockIntegrations = [
-        {
-          id: "fallback-integration-1",
-          name: "Fallback Stellar Cyber",
-          type: "alert",
-          source: "stellar-cyber",
-          status: "disconnected",
-          method: "api",
-          description: "This is a fallback integration generated due to an error in the database.",
-          icon: null,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          lastSyncAt: null,
-          credentials: {},
-        },
-      ]
+    console.log(`Found ${integrations.length} integrations`)
 
-      return NextResponse.json(mockIntegrations)
-    }
+    // Transform data for frontend compatibility
+    const transformedIntegrations = integrations.map((integration) => ({
+      ...integration,
+      type: integration.source, // Use source as type for frontend
+      method: "api", // Default method
+      description: "", // Default description
+      lastSyncAt: integration.lastSync,
+    }))
+
+    return NextResponse.json({
+      success: true,
+      data: transformedIntegrations,
+    })
   } catch (error) {
-    console.error("Error in GET /api/integrations:", error)
-    return NextResponse.json({ error: "Failed to fetch integrations" }, { status: 500 })
+    console.error("Database error in GET /api/integrations:", error)
+    return NextResponse.json(
+      {
+        success: false,
+        error: "Failed to fetch integrations",
+        data: [], // Return empty array as fallback
+      },
+      { status: 500 },
+    )
   }
 }
 
 export async function POST(request: NextRequest) {
-  console.log("POST /api/integrations")
   try {
-    const data = await request.json()
+    const body = await request.json()
+    const { name, source, credentials, description } = body
 
-    // Validasi data
-    if (!data.name || !data.type || !data.source || !data.method) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
-    }
+    console.log("Creating integration with data:", {
+      name,
+      source,
+      credentialsKeys: Object.keys(credentials || {}),
+    })
 
-    // Coba simpan ke database
-    try {
-      const integration = await prisma.integration.create({
-        data,
-      })
+    const integration = await prisma.integration.create({
+      data: {
+        name,
+        source,
+        status: "connected", // Set as connected by default
+        credentials: credentials || {},
+        config: {},
+      },
+    })
 
-      return NextResponse.json(integration)
-    } catch (dbError) {
-      console.error("Database error in POST /api/integrations:", dbError)
-
-      // Fallback jika database belum siap
-      return NextResponse.json(
-        {
-          id: "fallback-integration",
-          ...data,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          fallback: true,
-        },
-        { status: 201 },
-      )
-    }
+    return NextResponse.json({
+      success: true,
+      data: {
+        ...integration,
+        type: integration.source,
+        method: "api",
+        description: description || "",
+        lastSyncAt: integration.lastSync,
+      },
+    })
   } catch (error) {
-    console.error("Error in POST /api/integrations:", error)
-    return NextResponse.json({ error: "Failed to create integration" }, { status: 500 })
+    console.error("Error creating integration:", error)
+    return NextResponse.json(
+      {
+        success: false,
+        error: "Failed to create integration",
+      },
+      { status: 500 },
+    )
   }
-}
-
-export async function OPTIONS() {
-  return new NextResponse(null, {
-    status: 204,
-    headers: {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, Authorization",
-    },
-  })
 }

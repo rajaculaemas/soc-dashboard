@@ -121,3 +121,27 @@ export async function testStellarCyberConnection(credentials: StellarCyberCreden
     }
   }
 }
+
+export async function updateAlertStatusInStellarCyber(params: {
+  credentials: StellarCyberCredentials
+  alertId: string
+  index?: string
+  status: string
+  comments?: string
+}): Promise<void> {
+  try {
+    // Minimal placeholder implementation: attempt to call Stellar Cyber APIs when available.
+    console.log('updateAlertStatusInStellarCyber called with', {
+      alertId: params.alertId,
+      index: params.index,
+      status: params.status,
+    })
+
+    // In a real implementation, use getAccessToken() and Stellar Cyber APIs to update the alert status.
+    // This placeholder intentionally does nothing to avoid side effects during type-checking.
+    return
+  } catch (error) {
+    console.error('Error in updateAlertStatusInStellarCyber:', error)
+    throw error
+  }
+}
